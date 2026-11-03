@@ -66,21 +66,70 @@ def seg_fractions(voice, segs):
     return out          # 各文の、開始位置(0〜1)
 
 
-def race_text(r):
+FAIL_REASON = {
+    "fault": ("システムに不具合が起きたため", "大変申し訳ありません"),
+    "absent": ("欠場艇が出たため", ""),
+    "noresult": ("結果が出ていないため", ""),
+    "special": ("同着などのため", ""),
+}
+
+
+def region(a, b):
+    """飛ばした範囲の言い方(whole=その場すべて / 以降 / 1レース / 範囲)"""
+    if a == 1 and b == 12:
+        return "", "全レース", "ボートは"
+    if b == 12 and a < 12:
+        return f"、{a}レース以降は", f"{a}レース以降", ""
+    if a == b:
+        return f"、{a}レースは", f"{a}レース", ""
+    return f"、{a}レースから、{b}レースは", f"{a}〜{b}レース", ""
+
+
+def fail_beat(venue, a, b, kind):
+    why, sorry = FAIL_REASON.get(kind, FAIL_REASON["fault"])
+    mid, label, whole = region(a, b)
+    if whole:       # その場すべて
+        text = f"{venue}ボートは、{why}、お伝えすることができません。"
+    else:
+        text = f"{venue}ボート{mid}、{why}、お伝えすることができません。"
+    if sorry:
+        text += sorry + "。"
+    return {"type": "fail", "venue": venue, "label": label, "kind": kind, "text": text,
+            "msg1": f"{why}、お伝えすることができません", "msg2": sorry}
+
+
+def race_text(r, lead=""):
     a, b, c = r["win"].split("-")
-    s1 = f"{r['venue']}ボート、{r['no']}レース。"
+    s1 = f"{lead}{r['venue']}ボート、{r['no']}レース。"
     s2 = f"3連単、{a}、{b}、{c}。"
     s3 = f"払戻金、{r['pay']}円。"
     s4 = "ツールの買い目、的中です。" if r["hit"] else "ツールの買い目に、的中はありません。"
     return s1, s2, s3, s4
 
 
-def build_script(date, races, brand_reading):
+def build_script(date, day, brand_reading):
     m, d = int(date[4:6]), int(date[6:])
     beats = [{"type": "opening", "text": f"{m}月{d}日、解析ツール、{brand_reading}、答え合わせの時間です。"}]
-    for r in races:
-        segs = race_text(r)
-        beats.append({"type": "race", "race": r, "segs": list(segs), "text": "".join(segs)})
+    by_race = {(r["venue"], r["no"]): r for r in day["races"]}
+    by_fail = {(f["venue"], f["no"]): f["kind"] for f in day.get("fails", [])}
+    after_fail = False
+    for v in day["venues"]:
+        n = 1
+        while n <= 12:
+            r = by_race.get((v, n))
+            if r:
+                segs = race_text(r, "続いて、" if after_fail else "")
+                beats.append({"type": "race", "race": r, "segs": list(segs), "text": "".join(segs)})
+                after_fail = False
+                n += 1
+                continue
+            kind = by_fail.get((v, n), "fault")
+            e = n
+            while e + 1 <= 12 and (v, e + 1) not in by_race and by_fail.get((v, e + 1), "fault") == kind:
+                e += 1
+            beats.append(fail_beat(v, n, e, kind))
+            after_fail = True
+            n = e + 1
     beats.append({"type": "ending", "text": f"解析ツール、{brand_reading}の詳細は、概要欄からご確認ください。それでは、また明日、お会いしましょう。"})
     return beats
 
@@ -97,7 +146,7 @@ def assemble(beats, voice, last_tail=1.4):
         b["audioOffset"] = V.LEAD
         b["visemes"], b["lipsync"] = V.pick_visemes(q, a, sr, alen, f'{i + 1}番目 {b["type"]}')
         tail = last_tail if i == len(beats) - 1 else V.TAIL
-        mind = {"opening": 5.0, "race": MIN_DUR_RACE, "ending": 5.0}[b["type"]]
+        mind = {"opening": 5.0, "race": MIN_DUR_RACE, "fail": 5.0, "ending": 5.0}[b["type"]]
         b["dur"] = round(max(mind, V.LEAD + alen + tail), 3)
         b["start"] = round(cursor, 3)
         chunks.append((cursor + V.LEAD, a))
@@ -140,16 +189,18 @@ def main():
     if not races:
         print(f"::notice::{date} は、答え合わせできたレースがありません。動画は作りません")
         return 0
-    if args.limit:
+    if args.limit:                      # 確認用: 最初のNレースだけ(飛ばしたレースの案内は、出さない)
         races = races[:args.limit]
+        day = dict(day, races=races, fails=[], venues=[v for v in day["venues"] if any(r["venue"] == v for r in races)])
     move1 = day["move1"]
-    venues = [v for v in day["venues"] if any(r["venue"] == v for r in races)]
+    venues = list(day["venues"])
+    nfails = len(day.get("fails", []))
     y, m, d = int(date[:4]), int(date[4:6]), int(date[6:])
     os.makedirs(args.out, exist_ok=True)
     nhit = sum(1 for r in races if r["hit"])
-    print(f"[data] {date} {'・'.join(venues)} races={len(races)} 的中あり={nhit} 的中なし={len(races) - nhit}")
+    print(f"[data] {date} {'・'.join(venues)} races={len(races)} 的中あり={nhit} 的中なし={len(races) - nhit} お伝えできないレース={nfails}")
 
-    beats = build_script(date, races, args.brand_reading)
+    beats = build_script(date, day, args.brand_reading)
     voice = V.Voice(args.voice, args.voicevox_url)
     total, master, sr = assemble(beats, voice)
     cnt = collections.Counter(b["lipsync"] for b in beats)
@@ -191,16 +242,19 @@ def main():
     chapters = ["0:00 オープニング"]
     seen = set()
     for bt in beats:
-        if bt["type"] == "race" and bt["race"]["venue"] not in seen:
-            seen.add(bt["race"]["venue"])
-            chapters.append(f"{mmss(bt['start'])} {bt['race']['venue']}")
+        vname = bt["race"]["venue"] if bt["type"] == "race" else bt.get("venue") if bt["type"] == "fail" else None
+        if vname and vname not in seen:
+            seen.add(vname)
+            chapters.append(f"{mmss(bt['start'])} {vname}")
+    note = f"※取得できなかった・結果が出ていなかった・欠場があったなどで、お伝えできなかったレースが{nfails}あります。\n" if nfails else ""
     desc = (f"{m}月{d}日 解析ツール「{args.brand}」答え合わせ\n"
-            f"対象: {'・'.join(venues)}の全{len(races)}レース。ツールの攻め筋は、1コースの「{move1}」を選択した場合です。\n"
-            f"ツールの詳細: {SITE_URL}\n\n"
+            f"対象: {'・'.join(venues)}の{len(races)}レース。ツールの攻め筋は、1コースの「{move1}」を選択した場合です。\n"
+            + note
+            + f"ツールの詳細: {SITE_URL}\n\n"
             + "\n".join(chapters) + "\n\n"
-            "※予想の的中や利益をお約束するものではありません。\n"
-            "音声:VOICEVOX:青山龍星\n"
-            "※映像のキャスターと背景は、AIで生成した画像です(YouTubeの「改変または合成されたコンテンツ」にチェック)。\n")
+            + "※予想の的中や利益をお約束するものではありません。\n"
+            + "音声:VOICEVOX:青山龍星\n"
+            + "※映像のキャスターと背景は、AIで生成した画像です(YouTubeの「改変または合成されたコンテンツ」にチェック)。\n")
     with open(os.path.join(args.out, "description.txt"), "w", encoding="utf-8") as f:
         f.write(desc)
     print(f"[timeline] total {total:.1f}s ({total / 60:.1f}分)  races={len(races)}")

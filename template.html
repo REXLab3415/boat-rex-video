@@ -184,7 +184,7 @@ function build(b){
       <div class="big2" data-in=".5" data-fx="up">答え合わせ</div>
       <div class="line" data-in=".8" data-fx="fade"></div>
       <div class="meta" data-in="1.0" data-fx="up">${D.dateLabel}</div>
-      <div class="vlist" data-in="1.4" data-fx="up">全${D.nvenues}場　全${D.nraces}レース</div></div>`;
+      <div class="vlist" data-in="1.4" data-fx="up">全${D.nvenues}場　${D.nraces}レース</div></div>`;
   } else if(b.type==='race'){
     const [a,bb,c] = r.win.split('-').map(Number);
     h = `<div class="rhead">
@@ -195,6 +195,13 @@ function build(b){
       ${D.bands.map((bd,bi)=>`<div class="brow" data-bi="${bi}" data-hit="${r.bandHit[bd.key]?1:0}"><div class="bd" data-in="0.15" data-dur="0.3" data-fx="fade"><b>${bd.label}</b><small>確率順 ${bd.lo}〜${bd.hi}位</small></div>
         <div class="btiles">${r.bandBets[bd.key].map((t,i)=>`<div class="tile${t===r.win?' win':''}" data-in="${(0.2+0.015*(bi*8+i)).toFixed(3)}" data-dur="0.3" data-fx="up">${t}</div>`).join('')}</div></div>`).join('')}`;
     counters.push({id:'paynum', to:r.pay, t0:b.payTime, dur:0.9});
+  } else if(b.type==='fail'){
+    h = `<div class="center">
+      <div class="big1" data-in=".1" data-fx="up" style="font-size:62px">${b.venue}ボート</div>
+      <div class="big2" data-in=".4" data-fx="up" style="color:#fbbf24">${b.label}</div>
+      <div class="line" data-in=".7" data-fx="fade"></div>
+      <div class="meta" data-in=".9" data-fx="up" style="font-size:30px">${b.msg1}</div>
+      ${b.msg2?`<div class="vlist" data-in="1.4" data-fx="up">${b.msg2}</div>`:''}</div>`;
   } else if(b.type==='ending'){
     h = `<div class="center">
       <div class="big1" data-in=".1" data-fx="up" style="font-size:54px;letter-spacing:.04em">ご視聴ありがとうございました</div>
@@ -205,7 +212,7 @@ function build(b){
   }
   m.innerHTML = h;
   anims = [...m.querySelectorAll('[data-in]')];
-  $('#hmeta').textContent = r ? `${r.venue}　${r.no}R` : `${D.dateLabel}　全${D.nvenues}場`;
+  $('#hmeta').textContent = r ? `${r.venue}　${r.no}R` : b.type==='fail' ? `${b.venue}` : `${D.dateLabel}　全${D.nvenues}場`;
 }
 
 function buildGraph(){
