@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+:root{ --line:rgba(34,211,238,.30); --cy:#22d3ee; --am:#fbbf24; --rd:#fb4d6a; --tx:#e8eefb; --mut:#8fa3c7; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0b1630;
+  font-family:"Noto Sans CJK JP","Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;color:var(--tx)}
+#stage{position:relative;width:1920px;height:1080px;background:#0b1630 url(assets/studio_bg.jpg) center/cover no-repeat;overflow:hidden}
+
+/* ===== 上部の電光掲示板 ===== */
+#sign{position:absolute;overflow:hidden;background:#05070b}
+#sign::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(circle,rgba(0,0,0,.62) 1.1px,transparent 1.6px);background-size:4px 4px;mix-blend-mode:multiply}
+#sg{position:absolute;left:0;top:0;height:100%;display:flex;align-items:center;white-space:nowrap;
+  font-size:46px;font-weight:800;letter-spacing:.05em;color:#ffcf6b;text-shadow:0 0 10px rgba(255,160,30,.75),0 0 2px rgba(255,220,150,.9)}
+#sg .it{margin-right:120px}
+#sg .it::before{content:"◆";color:#22d3ee;text-shadow:0 0 10px rgba(34,211,238,.8);margin-right:40px;font-size:30px;vertical-align:middle}
+
+/* ===== 手前のモニター(結果画面) ===== */
+#screen{position:absolute;overflow:hidden;background:#06101f}
+#sv{position:absolute;left:0;top:0;width:1300px;height:703px;transform-origin:0 0;
+  background:radial-gradient(900px 500px at 20% 0%,rgba(34,211,238,.10),transparent 60%),linear-gradient(180deg,#0d1b38,#07122a)}
+#sv::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:50px 50px}
+#glare{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,rgba(255,255,255,.10) 0%,rgba(255,255,255,.02) 28%,transparent 42%),linear-gradient(0deg,rgba(0,0,0,.18),transparent 25%)}
+#shdr{position:absolute;left:0;right:0;top:0;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;
+  background:rgba(8,18,40,.85);border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo .mk{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--cy),#3b82f6);display:grid;place-items:center;font-weight:900;color:#06101f;font-size:21px}
+.logo .nm{font-weight:900;letter-spacing:.07em;font-size:24px}
+.logo .tg{padding:2px 12px;border:1px solid var(--cy);color:var(--cy);border-radius:999px;font-size:16px;font-weight:700}
+.hr{display:flex;align-items:center;gap:16px;font-size:21px;font-weight:700;color:#cfe3ff}
+.badge-sample{padding:3px 14px;border:2px solid var(--rd);color:var(--rd);border-radius:8px;font-weight:900;letter-spacing:.18em;font-size:16px;background:rgba(251,77,106,.08)}
+#strat{position:absolute;left:0;right:0;top:58px;height:44px;display:flex;align-items:center;justify-content:center;gap:14px;
+  background:linear-gradient(90deg,rgba(251,191,36,.10),rgba(251,191,36,.26),rgba(251,191,36,.10));border-bottom:1px solid rgba(251,191,36,.55);
+  font-size:27px;font-weight:900;color:#ffe08a;letter-spacing:.05em;white-space:nowrap}
+#strat b{color:#fff;background:var(--am);color:#241a00;border-radius:8px;padding:0 14px;margin:0 4px}
+#main{position:absolute;left:0;right:0;top:102px;height:484px;padding:12px 30px 0}
+#stick{position:absolute;left:0;right:0;bottom:0;height:56px;display:flex;align-items:center;background:rgba(5,12,28,.95);border-top:1px solid var(--line)}
+#stick .lbl{position:relative;z-index:2;flex:0 0 210px;height:100%;display:grid;place-items:center;background:linear-gradient(90deg,var(--cy),#3b82f6);color:#05101f;font-weight:900;font-size:22px;letter-spacing:.04em;white-space:nowrap}
+#stick .win{position:relative;flex:1;min-width:0;height:100%;overflow:hidden}
+#tk{position:absolute;left:0;top:0;height:100%;display:flex;align-items:center;white-space:nowrap;font-size:25px;font-weight:700;color:#d6e3ff}
+#tk .it{margin-right:60px} #tk .it b{color:var(--am);margin:0 6px}
+
+/* 画面内の部品 */
+.ph{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.ptitle{font-size:36px;font-weight:900;letter-spacing:.04em}
+.ptitle b{color:var(--cy);font-size:44px;margin:0 6px}
+.psub{font-size:21px;color:var(--mut);font-weight:700}
+.psub em{font-style:normal;color:var(--rd);border:1.5px solid var(--rd);border-radius:6px;padding:0 8px;font-size:15px;margin-left:8px;letter-spacing:.15em}
+.chip{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:11px;font-weight:900;font-size:31px;border:2.5px solid rgba(255,255,255,.9);box-shadow:0 3px 9px rgba(0,0,0,.35)}
+.chip.s{width:36px;height:36px;font-size:21px;border-width:2px;border-radius:8px}
+.b1{background:#f4f6fa;color:#101827;border-color:#cfd6e4}.b2{background:#0c0f16;color:#fff;border-color:#59627a}
+.b3{background:#e11d48;color:#fff}.b4{background:#2563eb;color:#fff}.b5{background:#facc15;color:#241a00;border-color:#fff2a8}.b6{background:#16a34a;color:#fff}
+.row{display:grid;align-items:center;height:57px;margin-bottom:5px;border-radius:14px;padding:0 22px;
+  background:linear-gradient(90deg,rgba(255,255,255,.08),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.07)}
+.row.head{height:28px;background:none;border:none;color:var(--mut);font-size:17px;font-weight:700;margin-bottom:2px}
+.card-row{grid-template-columns:100px 170px 170px 1fr 290px}
+.res-row{grid-template-columns:120px 90px 150px 300px 1fr 170px}
+.num{font-size:32px;font-weight:800;font-variant-numeric:tabular-nums}
+.sub{font-size:22px;color:var(--mut);font-weight:700}
+.mk{display:inline-flex;align-items:center;gap:12px;color:var(--am);transform-origin:left center;filter:drop-shadow(0 0 8px rgba(251,191,36,.55))}
+.mk svg{width:44px;height:44px}.mk .lb{font-size:25px;font-weight:900;letter-spacing:.06em}
+.mk.m2{color:#7dd3fc;filter:drop-shadow(0 0 8px rgba(125,211,252,.5))}.mk.m3{color:#c4b5fd;filter:drop-shadow(0 0 7px rgba(196,181,253,.45))}.mk.m4{color:#cbd5e1;filter:none}
+.row.hot{background:linear-gradient(90deg,rgba(251,191,36,.22),rgba(251,191,36,.03));border-color:rgba(251,191,36,.55)}
+.row.hot2{background:linear-gradient(90deg,rgba(34,211,238,.17),rgba(34,211,238,.02));border-color:rgba(34,211,238,.45)}
+.ord{font-size:42px;font-weight:900;color:var(--cy);font-variant-numeric:tabular-nums}.ord small{font-size:22px;color:var(--mut);margin-left:3px}
+.km{display:inline-block;padding:6px 26px;border-radius:999px;background:linear-gradient(90deg,#f59e0b,#fb7185);color:#1b0b0b;font-weight:900;font-size:30px;letter-spacing:.06em}
+.pay-wrap{display:flex;flex-direction:column;gap:12px}
+.tri{display:flex;align-items:center;gap:14px}.tri .lab{font-size:28px;color:var(--mut);font-weight:800;margin-right:8px}
+.tri .chip{width:74px;height:74px;font-size:46px;border-radius:15px}.tri .dash{font-size:42px;color:var(--mut);font-weight:900}
+.paybox{display:flex;align-items:flex-end;gap:24px}
+.paybig{font-size:112px;font-weight:900;line-height:1;color:var(--am);text-shadow:0 0 34px rgba(251,191,36,.45);font-variant-numeric:tabular-nums}.paybig small{font-size:44px;margin-right:8px;color:#ffe08a}
+.pop{padding:6px 22px;border-radius:12px;border:2px solid var(--cy);color:var(--cy);font-size:34px;font-weight:900;margin-bottom:10px}
+.picks-h{margin-top:4px;font-size:20px;color:var(--mut);font-weight:700}
+.picks{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px}
+.pk{height:54px;border-radius:10px;display:grid;place-items:center;font-size:26px;font-weight:800;letter-spacing:.06em;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#9fb0cf;font-variant-numeric:tabular-nums}
+.pk.hit{background:rgba(251,191,36,.22);border-color:var(--am);color:#fff3c4;box-shadow:0 0 22px rgba(251,191,36,.45)}
+.stamp{position:absolute;right:34px;top:112px;padding:4px 30px;border:7px solid;border-radius:14px;font-size:70px;font-weight:900;letter-spacing:.1em;transform-origin:center;background:rgba(7,13,26,.55)}
+.stamp.hit{color:var(--am);border-color:var(--am);text-shadow:0 0 24px rgba(251,191,36,.6)}.stamp.miss{color:var(--rd);border-color:var(--rd);text-shadow:0 0 24px rgba(251,77,106,.5)}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px}
+.big1{font-size:84px;font-weight:900;letter-spacing:.08em;background:linear-gradient(90deg,#fff,var(--cy));-webkit-background-clip:text;color:transparent}
+.big2{font-size:62px;font-weight:900;letter-spacing:.2em}
+.line{width:420px;height:4px;background:linear-gradient(90deg,transparent,var(--cy),transparent);margin:14px 0}
+.meta{font-size:36px;font-weight:800;color:#cfe3ff}.meta2{font-size:23px;color:var(--mut);font-weight:700;margin-top:6px}
+.credit{margin-top:22px;padding:8px 22px;border:1px solid var(--line);border-radius:10px;font-size:22px;color:var(--mut)}
+#gsvg{position:absolute;left:24px;top:84px}
+.gval{text-align:right}.gval .l{font-size:18px;color:var(--mut);font-weight:700}.gval .v{font-size:54px;line-height:1.05;font-weight:900;color:var(--cy);font-variant-numeric:tabular-nums}
+
+
+/* ===== 全レース版の部品 ===== */
+.rhead{display:flex;align-items:center;justify-content:space-between;height:70px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.rname{font-size:44px;font-weight:900;letter-spacing:.04em;white-space:nowrap}.rname b{color:var(--cy);font-size:54px;margin-left:10px}
+.rtri{display:flex;align-items:center;gap:10px}.rtri .lab{font-size:24px;color:var(--mut);font-weight:800;margin-right:4px}
+.rtri .chip{width:58px;height:58px;font-size:36px;border-radius:12px}.rtri .dash{font-size:32px;color:var(--mut);font-weight:900}
+.rpay{display:flex;align-items:baseline;gap:6px;color:var(--am);font-weight:900;text-shadow:0 0 26px rgba(251,191,36,.45);font-variant-numeric:tabular-nums}
+.rpay .lab{font-size:24px;color:var(--mut);text-shadow:none;margin-right:6px}.rpay .yen{font-size:34px;color:#ffe08a}.rpay #paynum{font-size:62px;line-height:1}
+.verdict{padding:2px 22px;border:5px solid;border-radius:12px;font-size:42px;font-weight:900;letter-spacing:.08em;white-space:nowrap;background:rgba(7,13,26,.55)}
+.verdict.hit{color:var(--am);border-color:var(--am);text-shadow:0 0 22px rgba(251,191,36,.6)}.verdict.miss{color:var(--rd);border-color:var(--rd)}
+.brow{display:grid;grid-template-columns:196px 1fr;gap:12px;align-items:stretch;margin-bottom:8px}
+.bd{min-height:52px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2;
+  background:rgba(40,70,130,.40);border:1px solid rgba(120,160,230,.30);color:#e8eefb}
+.bd b{font-size:24px;font-weight:800;letter-spacing:.04em}.bd small{font-size:15px;font-weight:700;color:#9db4dc}
+.bd.lit{background:rgba(251,191,36,.26);border-color:var(--am);color:#fff3c4;box-shadow:0 0 20px rgba(251,191,36,.5)}
+.bd.lit small{color:#ffe08a}.bd.lit small::after{content:" 的中";color:var(--am);font-size:16px;font-weight:900}
+.btiles{display:grid;grid-template-columns:repeat(10,1fr);gap:5px 6px;align-content:center}
+.tile{position:relative;height:32px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:800;letter-spacing:.03em;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);color:#8fa3c7;font-variant-numeric:tabular-nums}
+.tile.lit{background:rgba(251,191,36,.30);border-color:var(--am);color:#fff3c4;box-shadow:0 0 18px rgba(251,191,36,.65)}
+.credit2{margin-top:14px;font-size:24px;color:var(--mut);font-weight:700}
+.vlist{font-size:30px;font-weight:800;color:#cfe3ff;margin-top:8px}
+
+/* ===== キャスター(モニターの横) ===== */
+#cslot{position:absolute;right:24px;bottom:0;width:554px;height:691px;transform-origin:50% 100%}
+#cwrap{position:absolute;left:0;top:0;transform-origin:0 0;transform:scale(.9)}
+#cwrap img{position:absolute;display:block}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="sign"><div id="sg"></div></div>
+  <div id="screen">
+    <div id="sv">
+      <div id="shdr">
+        <div class="logo"><div class="mk">B</div><div class="nm" id="brand"></div><div class="tg">答え合わせ</div></div>
+        <div class="hr"><span id="hmeta"></span></div>
+      </div>
+      <div id="strat"></div>
+      <div id="main"></div>
+      <div id="stick"><div class="lbl">RESULT FLASH</div><div class="win"><div id="tk"></div></div></div>
+    </div>
+    <div id="glare"></div>
+  </div>
+  <div id="cslot"><div id="cwrap"></div></div>
+</div>
+
+<script>
+const D = /*__DATA__*/null;
+const B = D.beats, L = D.layout;
+const $ = s => document.querySelector(s);
+const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
+const eo = x => { x=clamp(x,0,1); return 1-Math.pow(1-x,3); };
+const eob = x => { x=clamp(x,0,1); const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2); };
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const chip = (n,cls='') => `<span class="chip ${cls} b${n}">${n}</span>`;
+
+/* 位置合わせ: 掲示板とモニターを背景画像に合わせる */
+let VH = 703, GH = 432;
+(function layout(){
+  const s=$('#sign'), sc=$('#screen');
+  Object.assign(s.style,{left:L.sign.x+'px',top:L.sign.y+'px',width:L.sign.w+'px',height:L.sign.h+'px'});
+  Object.assign(sc.style,{left:L.screen.x+'px',top:L.screen.y+'px',width:L.screen.w+'px',height:L.screen.h+'px'});
+  $('#sv').style.transform = `scale(${L.screen.w/1300})`;
+  VH = Math.round(1300*L.screen.h/L.screen.w);               // 画面の縦横比に合わせた内部の高さ
+  $('#sv').style.height = VH+'px'; $('#main').style.height = (VH-102-56)+'px';
+  GH = Math.min(470, VH-58-56-96);
+  const one = D.sign.map(t=>`<span class="it">${t}</span>`).join('');
+  $('#sg').innerHTML = one+one+one;
+  $('#brand').textContent = D.brand;
+  $('#hmeta').textContent = D.dateLabel+'　全'+D.nvenues+'場';
+  $('#strat').innerHTML = `ツールの攻め筋：<b>1コース</b>の<b>「${D.move1}」</b>を選択しています`;
+  $('#tk').innerHTML = (()=>{ const o = D.ticker.map(s=>`<span class="it">${s}</span>`).join(''); return o+o+o; })();
+})();
+
+let cur = -1, anims = [], counters = [], pathEl = null, pathLen = 0, gData = null;
+function stTxt(e){ if(e.st==null) return '-'; const s = e.st.toFixed(2).replace(/^0/,''); return (e.flag? e.flag:'')+s; }
+function timeTxt(sec){ if(sec==null) return '-'; const m=Math.floor(sec/60), s=sec-m*60; return `${m}'${s.toFixed(1).padStart(4,'0')}`; }
+const mkSvg = [
+  '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" fill="none" stroke="currentColor" stroke-width="6"/><circle cx="30" cy="30" r="10" fill="none" stroke="currentColor" stroke-width="6"/></svg>',
+  '<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24" fill="none" stroke="currentColor" stroke-width="7"/></svg>',
+  '<svg viewBox="0 0 60 60"><polygon points="30,6 55,52 5,52" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/></svg>',
+  '<svg viewBox="0 0 60 60"><polygon points="30,8 53,50 7,50" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round"/></svg>'];
+const mkLab = ['本命','対抗','三番手','連下'];
+
+function build(b){
+  const m = $('#main'); anims=[]; counters=[]; pathEl=null; gData=null;
+  let h = ''; const r = b.race;
+  if(b.type==='opening'){
+    h = `<div class="center">
+      <div class="big1" data-in=".1" data-fx="up">${D.brand}</div>
+      <div class="big2" data-in=".5" data-fx="up">答え合わせ</div>
+      <div class="line" data-in=".8" data-fx="fade"></div>
+      <div class="meta" data-in="1.0" data-fx="up">${D.dateLabel}</div>
+      <div class="vlist" data-in="1.4" data-fx="up">全${D.nvenues}場　全${D.nraces}レース</div></div>`;
+  } else if(b.type==='race'){
+    const [a,bb,c] = r.win.split('-').map(Number);
+    h = `<div class="rhead">
+      <div class="rname" data-in=".1" data-fx="up">${r.venue}<b>${r.no}R</b></div>
+      <div class="rtri" data-in="${b.triTime.toFixed(2)}" data-fx="up"><span class="lab">3連単</span>${chip(a)}<span class="dash">-</span>${chip(bb)}<span class="dash">-</span>${chip(c)}</div>
+      <div class="rpay" data-in="${b.payTime.toFixed(2)}" data-fx="up"><span class="lab">払戻金(100円)</span><span class="yen">¥</span><span id="paynum">0</span></div>
+      <div class="verdict ${r.hit?'hit':'miss'}" data-in="${b.verdictTime.toFixed(2)}" data-fx="stamp">${r.hit?'的中':'的中なし'}</div></div>
+      ${D.bands.map((bd,bi)=>`<div class="brow" data-bi="${bi}" data-hit="${r.bandHit[bd.key]?1:0}"><div class="bd" data-in="0.15" data-dur="0.3" data-fx="fade"><b>${bd.label}</b><small>確率順 ${bd.lo}〜${bd.hi}位</small></div>
+        <div class="btiles">${r.bandBets[bd.key].map((t,i)=>`<div class="tile${t===r.win?' win':''}" data-in="${(0.2+0.015*(bi*8+i)).toFixed(3)}" data-dur="0.3" data-fx="up">${t}</div>`).join('')}</div></div>`).join('')}`;
+    counters.push({id:'paynum', to:r.pay, t0:b.payTime, dur:0.9});
+  } else if(b.type==='ending'){
+    h = `<div class="center">
+      <div class="big1" data-in=".1" data-fx="up" style="font-size:54px;letter-spacing:.04em">ご視聴ありがとうございました</div>
+      <div class="line" data-in=".5" data-fx="fade"></div>
+      <div class="meta" data-in=".7" data-fx="up">${D.brand}　毎日答え合わせ</div>
+      <div class="credit2" data-in="1.1" data-fx="fade">音声：VOICEVOX：青山龍星</div>
+      </div>`;
+  }
+  m.innerHTML = h;
+  anims = [...m.querySelectorAll('[data-in]')];
+  $('#hmeta').textContent = r ? `${r.venue}　${r.no}R` : `${D.dateLabel}　全${D.nvenues}場`;
+}
+
+function buildGraph(){
+  const g = D.graph, W=1250, H=GH, Lm=70, R=16, T=18, Bt=48;
+  const vs = g.values, n = vs.length;
+  const lo = Math.floor((Math.min(...vs,100)-6)/10)*10, hi = Math.ceil((Math.max(...vs,100)+6)/10)*10;
+  const X = i => Lm + (W-Lm-R)*i/(n-1), Y = v => T + (H-T-Bt)*(1-(v-lo)/(hi-lo));
+  let s = '';
+  for(let v=lo; v<=hi; v+=10){ s += `<line x1="${Lm}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(255,255,255,.09)"/><text x="${Lm-10}" y="${Y(v)+7}" text-anchor="end" fill="#8fa3c7" font-size="20" font-weight="700">${v}%</text>`; }
+  s += `<line x1="${Lm}" x2="${W-R}" y1="${Y(100)}" y2="${Y(100)}" stroke="#fb4d6a" stroke-width="2.5" stroke-dasharray="10 8"/><text x="${W-R}" y="${Y(100)-8}" text-anchor="end" fill="#fb4d6a" font-size="19" font-weight="800">回収率100%</text>`;
+  g.days.forEach((d,i)=>{ if(i%2===0 || i===n-1) s += `<text x="${X(i)}" y="${H-Bt+30}" text-anchor="middle" fill="#8fa3c7" font-size="19" font-weight="700">${d}</text>`; });
+  const pts = vs.map((v,i)=>[X(i),Y(v)]);
+  const d = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area = d+` L${X(n-1)} ${Y(lo)} L${X(0)} ${Y(lo)} Z`;
+  s += `<defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".35"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient><clipPath id="gc"><rect id="gclip" x="${Lm}" y="0" width="0" height="${H}"/></clipPath></defs>`;
+  s += `<path d="${area}" fill="url(#ga)" clip-path="url(#gc)"/>`;
+  s += `<path id="gline" d="${d}" fill="none" stroke="#22d3ee" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<circle id="gdot" r="11" fill="#fff" stroke="#22d3ee" stroke-width="5" cx="${pts[0][0]}" cy="${pts[0][1]}"/>`;
+  $('#gsvg').innerHTML = s;
+  pathEl = $('#gline'); pathLen = pathEl.getTotalLength();
+  pathEl.style.strokeDasharray = pathLen; pathEl.style.strokeDashoffset = pathLen;
+  gData = {pts, vs, L:Lm, W, R};
+}
+
+function applyAnim(el, lt){
+  const t0 = parseFloat(el.dataset.in), dur = parseFloat(el.dataset.dur||'0.5'), fx = el.dataset.fx;
+  const p = (lt-t0)/dur;
+  if(p<=0){ el.style.opacity=0; return; }
+  const e = eo(p);
+  el.style.opacity = clamp(p*2,0,1);
+  if(fx==='up') el.style.transform = `translateY(${(1-e)*22}px)`;
+  else if(fx==='left') el.style.transform = `translateX(${-(1-e)*60}px)`;
+  else if(fx==='pop'){ el.style.transform = `scale(${0.3+0.7*eob(p)})`; }
+  else if(fx==='stamp'){ const q = clamp((lt-t0)/0.28,0,1); el.style.opacity = q; el.style.transform = `rotate(-9deg) scale(${1+(1-eo(q))*1.6})`; }
+  else el.style.transform = '';
+}
+
+/* ===== キャスター: 写真ベース + 口6形・閉じ目のパッチ ===== */
+const SH = ['closed','a','i','u','e','o'];
+(function buildCaster(){
+  const C = D.caster, w = $('#cwrap'); let h = `<img src="assets/caster_base.png" style="left:0;top:0">`;
+  for(const [k,p] of Object.entries(C.patches)){
+    const hide = (k==='mouth_closed') ? '' : (k==='eyes_closed' ? 'display:none;' : 'opacity:0;');
+    h += `<img id="p-${k}" src="assets/${k}.png" style="${hide}left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px">`;
+  }
+  w.style.width = C.w+'px'; w.style.height = C.h+'px'; w.innerHTML = h;
+})();
+let _blink = false;
+const OPEN = ['a','i','u','e','o'];
+const ss = x => { x = clamp(x,0,1); return x*x*(3-2*x); };                  // なめらかな立ち上がり
+/* 口の動きのモデル(時刻だけで決まる=コマごとに独立して計算できる)
+   ・短い「閉じ」(0.12秒未満。前後が母音のとき)は、完全には閉じず前の形を6割残す
+   ・形の切り替えは前後にまたがって溶け込む(開く0.07秒/母音どうし0.09秒/閉じる0.10秒) */
+function mouthModel(vis){
+  if(vis._m) return vis._m;
+  const n = vis.length, sg = vis.map(v=>({s:v[0], e:v[1], k:v[2], a:1}));
+  for(let i=1;i<n-1;i++){
+    if(sg[i].k==='closed' && (sg[i].e-sg[i].s)<0.12 && sg[i-1].k!=='closed' && sg[i+1].k!=='closed'){
+      sg[i].k = sg[i-1].k; sg[i].a = 0.6;
+    }
+  }
+  sg.forEach((g,i)=>{
+    g.hr = (i===0 || sg[i-1].k==='closed') ? 0.035 : 0.045;               // 立ち上がりの半幅
+    g.hf = (i===n-1 || sg[i+1].k==='closed') ? 0.05 : 0.045;              // 立ち下がりの半幅
+  });
+  return vis._m = sg;
+}
+function mouthWeights(vis, at){
+  const w = {a:0,i:0,u:0,e:0,o:0};
+  for(const g of mouthModel(vis)){
+    if(g.k==='closed') continue;
+    if(g.s-g.hr > at) break;
+    const x = Math.min((at-(g.s-g.hr))/(2*g.hr), ((g.e+g.hf)-at)/(2*g.hf));
+    const v = ss(x)*g.a; if(v>w[g.k]) w[g.k] = v;
+  }
+  let S = 0; for(const k of OPEN) S += w[k];
+  if(S>1) for(const k of OPEN) w[k] /= S;                                  // 合計は1まで(二重写りを防ぐ)
+  return w;
+}
+function setMouthWeights(vis, at, speaking){
+  const w = speaking ? mouthWeights(vis, at) : {a:0,i:0,u:0,e:0,o:0};
+  let rest = 0;                                                           // 上に重なる形の合計(重ね順は a,i,u,e,o)
+  for(let j=OPEN.length-1;j>=0;j--){
+    const k = OPEN[j], al = rest>=0.999999 ? 0 : w[k]/(1-rest);
+    const g = document.getElementById('p-mouth_'+k); if(g) g.style.opacity = clamp(al,0,1).toFixed(3);
+    rest += w[k];
+  }
+}
+/* 口の開き具合を少し遅れてならした値(体のうなずきに使う) */
+function openness(vis, at){
+  let m = 0; for(let j=0;j<5;j++){ const w = mouthWeights(vis, at-0.06*j); m += w.a+w.i+w.u+w.e+w.o; }
+  return m/5;
+}
+
+function render(t){
+  let bi = B.findIndex(b=> t>=b.start && t<b.start+b.dur);
+  if(bi<0) bi = B.length-1;
+  const b = B[bi], lt = t-b.start;
+  if(bi!==cur){ build(b); cur=bi; }
+  const fin = eo(lt/0.28), fout = (bi===B.length-1)? 1 : clamp((b.dur-lt)/0.25,0,1);
+  const main = $('#main'); main.style.opacity = fin*fout; main.style.transform = `translateY(${(1-fin)*10}px)`;
+  anims.forEach(el=>applyAnim(el, lt));
+  if(b.type==='race'){
+    document.querySelectorAll('.tile.win').forEach(w=>w.classList.toggle('lit', lt>=b.verdictTime));
+    document.querySelectorAll('.brow').forEach(rw=>{ const bd=rw.querySelector('.bd'); if(bd) bd.classList.toggle('lit', rw.dataset.hit==='1' && lt>=b.verdictTime+0.1*parseInt(rw.dataset.bi)); });
+  }
+  counters.forEach(c=>{ const p = eo((lt-c.t0)/c.dur); const el=document.getElementById(c.id); if(el) el.textContent = fmt(c.to*p); });
+  if(b.type==='graph' && pathEl){
+    const p = eo((lt-0.4)/4.2);
+    pathEl.style.strokeDashoffset = pathLen*(1-p);
+    const pt = pathEl.getPointAtLength(pathLen*p);
+    const dot = document.getElementById('gdot'); dot.setAttribute('cx',pt.x); dot.setAttribute('cy',pt.y);
+    document.getElementById('gclip').setAttribute('width', Math.max(0,pt.x-gData.L));
+    const idx = clamp(p*(gData.vs.length-1),0,gData.vs.length-1), i0=Math.floor(idx), i1=Math.min(i0+1,gData.vs.length-1);
+    document.getElementById('gnum').textContent = (gData.vs[i0]+(gData.vs[i1]-gData.vs[i0])*(idx-i0)).toFixed(1);
+  }
+  // 口パク・まばたき・呼吸
+  const at = lt - b.audioOffset;
+  const speaking = (at>=0 && at<=b.audioLen);
+  setMouthWeights(b.visemes, at, speaking);
+  const blink = ((t%3.7)<0.13) || ((t+1.9)%6.1<0.13);
+  if(blink!==_blink){ _blink = blink; document.getElementById('p-eyes_closed').style.display = blink?'':'none'; }
+  const m = speaking ? openness(b.visemes, at) : 0;                          // 口の開き(ならし済み)
+  const lean = speaking ? Math.pow(Math.sin(Math.PI*clamp(at/0.8,0,1)),2) : 0;   // 話し出しで少し前に出る
+  const rot = Math.sin(t*0.7)*0.45 + Math.sin(t*1.7+1)*0.12 + lean*0.25;
+  const sy = 1 + 0.0035*Math.sin(t*1.5) + 0.008*m + 0.006*lean;              // 下端は固定のまま頭だけ上下
+  const sx = 1 + 0.0015*Math.sin(t*1.5) + 0.003*m + 0.003*lean;
+  document.getElementById('cslot').style.transform = `translate(${(Math.sin(t*0.9)*2.2).toFixed(2)}px,8px) rotate(${rot.toFixed(3)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+  // 結果ティッカー(モニター内)と電光掲示板
+  const tk = document.getElementById('tk'); tk.style.transform = `translateX(${-((t*85)%(tk.scrollWidth/3))}px)`;
+  const sg = document.getElementById('sg'); sg.style.transform = `translateX(${-((t*170)%(sg.scrollWidth/3))}px)`;
+}
+render(0);
+</script>
+</body>
+</html>
