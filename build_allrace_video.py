@@ -81,7 +81,7 @@ def build_script(date, races, brand_reading):
     for r in races:
         segs = race_text(r)
         beats.append({"type": "race", "race": r, "segs": list(segs), "text": "".join(segs)})
-    beats.append({"type": "ending", "text": f"解析ツール、{brand_reading}の詳細は、概要欄からご確認ください。"})
+    beats.append({"type": "ending", "text": f"解析ツール、{brand_reading}の詳細は、概要欄からご確認ください。それでは、また明日、お会いしましょう。"})
     return beats
 
 
