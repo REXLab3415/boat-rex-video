@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1280px;height:720px;overflow:hidden;background:#0b1630;
+  font-family:"Noto Sans CJK JP","Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;color:#fff}
+#t{position:relative;width:1280px;height:720px;overflow:hidden;
+  background:linear-gradient(90deg,rgba(5,10,24,.93) 0%,rgba(5,10,24,.78) 52%,rgba(5,10,24,.25) 100%),url("__ASSETS__/studio_bg.jpg") center/cover no-repeat}
+#caster{position:absolute;right:-20px;bottom:0;height:700px}
+.badge{position:absolute;left:48px;top:40px;display:flex;align-items:center;gap:18px}
+.badge .a{font-size:62px;font-weight:900;letter-spacing:.06em;color:#06101f;background:linear-gradient(90deg,#22d3ee,#60a5fa);padding:2px 26px;border-radius:14px}
+.badge .d{font-size:78px;font-weight:900;letter-spacing:.02em;text-shadow:0 4px 18px rgba(0,0,0,.7)}
+.lab{position:absolute;left:52px;top:182px;font-size:36px;font-weight:800;color:#cfe3ff;letter-spacing:.04em}
+.pay{position:absolute;left:44px;top:222px;font-size:170px;line-height:1;font-weight:900;color:#fbbf24;letter-spacing:.01em;
+  text-shadow:0 0 36px rgba(251,191,36,.45),0 6px 0 rgba(0,0,0,.55);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pay small{font-size:62px;margin-right:6px;color:#fde68a}
+.sub{position:absolute;left:52px;top:430px;font-size:34px;font-weight:700;color:#e8eefb}
+.chips{position:absolute;left:52px;top:500px;display:flex;gap:16px}
+.chip{font-size:44px;font-weight:900;padding:6px 26px;border-radius:14px;background:rgba(255,255,255,.10);border:3px solid rgba(255,255,255,.25)}
+.chip b{color:#fbbf24;font-size:56px;margin:0 4px}
+.brand{position:absolute;left:52px;bottom:34px;font-size:40px;font-weight:900;letter-spacing:.12em;color:#22d3ee}
+.brand span{color:#8fa3c7;font-size:26px;letter-spacing:.04em;margin-left:16px;font-weight:700}
+</style></head><body>
+<div id="t">
+  <img id="caster" src="__ASSETS__/caster_base.png">
+  <div class="badge"><div class="a">答え合わせ</div><div class="d" id="date"></div></div>
+  <div class="lab">この日の最高払戻(3連単・100円あたり)</div>
+  <div class="pay" id="pay"></div>
+  <div class="sub" id="sub"></div>
+  <div class="chips" id="chips"></div>
+  <div class="brand">BOAT REX PRO<span>解析ツールの答え合わせ</span></div>
+</div>
+<script>
+const D=/*__DATA__*/null;
+document.getElementById('date').textContent=D.dateLabel;
+document.getElementById('pay').innerHTML='<small>¥</small>'+D.maxPay.toLocaleString('en-US');
+document.getElementById('sub').textContent=D.sub;
+document.getElementById('chips').innerHTML=
+  '<div class="chip">的中あり<b>'+D.nhit+'</b>レース</div><div class="chip">全<b>'+D.nraces+'</b>レース</div>';
+</script></body></html>
