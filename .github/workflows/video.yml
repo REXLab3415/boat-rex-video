@@ -104,8 +104,17 @@ jobs:
             out/*.mp4
             out/description.txt
             out/timeline.json
+            out/thumbnail_*.jpg
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: サムネイルを作る(失敗しても、投稿は続ける)
+        if: github.event.inputs.voice != 'dummy'
+        continue-on-error: true
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+        run: |
+          python make_thumbnail.py --date "$DATE_ARG" --out out
 
       - name: YouTubeに投稿する
         if: github.event.inputs.voice != 'dummy'
