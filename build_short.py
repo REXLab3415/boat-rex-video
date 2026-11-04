@@ -24,7 +24,9 @@ import numpy as np  # noqa: E402
 
 W, H = 1080, 1920
 MAX_SEC = 59.0          # ショートの上限(YouTubeの公式は3分だが、余裕を持って59秒以内にする)
-MIN_BEAT = [6.0, 5.5, 5.5, 7.0, 6.0]      # 5つの場面の最短の長さ(合計30秒。目標は30〜50秒)
+MIN_BEAT = [0.0, 0.0, 0.0, 7.0, 6.0]      # 5つの場面の最短の長さ。最初の3つは、続けて1文に聞こえるように、声の長さに合わせる
+LEADS = [None, 0.06, 0.06, None, None]    # 場面の頭から声が始まるまでの間(秒)。None = 通常(V.LEAD)
+TAILS = [0.04, 0.04, None, None, None]    # 声が終わってから場面が終わるまでの間(秒)。None = 通常(V.TAIL)。最後の場面は別
 SITE_URL = A.SITE_URL
 BASE_TAGS = ["競艇", "ボートレース", "ボートレース結果", "3連単", "払戻金", "万舟", "BOAT REX PRO", "Shorts"]
 BAND_SPOKEN = {"prob": "確率が高い帯", "hm": "確率が高めから、中くらいの帯", "bal": "確率が中くらいの帯",
@@ -79,9 +81,10 @@ def build_beats(date, day, top, bands, compact):
     else:
         end = ("全場の答え合わせは、チャンネルの最新動画で。" if all_venues
                else "ほかのレースの答え合わせは、チャンネルの最新動画で。")
-    texts = [f"{m}月{d}日の、最高払戻は、{top['venue']}ボート、{top['no']}レース。",
-             f"3連単、{a}、{b}、{c}。",
-             f"払戻金、{top['pay']}円。",
+    # 最初の3つは、続けて1文に聞こえる(文の途中なので、句点を付けない)
+    texts = [f"{m}月{d}日、本日の払戻金の最高額は、{top['venue']}ボート、{top['no']}レース",
+             f"3連単、{a}、{b}、{c}",
+             f"払戻金は、{top['pay']}円。",
              verdict, end]
     types = ["opening", "tri", "pay", "verdict", "ending"]
     return [{"type": t, "text": x, "min": MIN_BEAT[i]} for i, (t, x) in enumerate(zip(types, texts))], hit_keys, all_venues
@@ -96,12 +99,13 @@ def assemble(beats, voice, last_tail=1.4):
         assert sr == sr_ref
         alen = len(a) / sr
         bt["audioLen"] = round(alen, 3)
-        bt["audioOffset"] = V.LEAD
+        lead = V.LEAD if LEADS[i] is None else LEADS[i]
+        bt["audioOffset"] = lead
         bt["visemes"], bt["lipsync"] = V.pick_visemes(q, a, sr, alen, f"ショート{i + 1}番目 {bt['type']}")
-        tail = last_tail if i == len(beats) - 1 else V.TAIL
-        bt["dur"] = round(max(bt["min"], V.LEAD + alen + tail), 3)
+        tail = last_tail if i == len(beats) - 1 else (V.TAIL if TAILS[i] is None else TAILS[i])
+        bt["dur"] = round(max(bt["min"], lead + alen + tail), 3)
         bt["start"] = round(cursor, 3)
-        chunks.append((cursor + V.LEAD, a))
+        chunks.append((cursor + lead, a))
         cursor += bt["dur"]
     total = cursor
     master = np.zeros(int(total * sr_ref) + sr_ref, dtype=np.int16)
@@ -212,7 +216,7 @@ def main():
         audio_path = os.path.join(args.out, "short_narration.wav")
         V.write_wav(audio_path, master, sr)
         pay = int(top["pay"])
-        verdict_at = beats[3]["start"] + V.LEAD + (0.9 if hit_keys else 0.7)
+        verdict_at = beats[3]["start"] + beats[3]["audioOffset"] + (0.9 if hit_keys else 0.7)
         data = {
             "date": date, "dateLabel": f"{m}/{d}", "brand": args.brand, "venue": top["venue"], "no": top["no"],
             "win": str(top["win"]).split("-"), "payText": f"{pay:,}", "nohit": not hit_keys, "verdictAt": round(verdict_at, 3),
