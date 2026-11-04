@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+:root{ --cy:#22d3ee; --am:#fbbf24; --rd:#fb4d6a; --tx:#e8eefb; --mut:#8fa3c7; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#0b1630;
+  font-family:"Noto Sans CJK JP","Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;color:var(--tx)}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;
+  background:radial-gradient(900px 700px at 30% 8%,rgba(34,211,238,.18),transparent 62%),radial-gradient(900px 800px at 90% 70%,rgba(59,130,246,.16),transparent 60%),linear-gradient(180deg,#0d1b38,#07122a)}
+#stage::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:60px 60px}
+.abs{position:absolute}
+#brand{left:60px;top:70px;display:flex;align-items:center;gap:16px}
+#brand .mk{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--cy),#3b82f6);display:grid;place-items:center;font-weight:900;color:#06101f;font-size:32px}
+#brand .nm{font-weight:900;letter-spacing:.07em;font-size:42px}
+#brand .tg{padding:4px 18px;border:2px solid var(--cy);color:var(--cy);border-radius:999px;font-size:28px;font-weight:700}
+#lab{left:60px;width:900px;top:165px;font-size:66px;font-weight:900;color:#ffe08a;letter-spacing:.04em;white-space:nowrap}
+#lab b{background:var(--am);color:#241a00;border-radius:12px;padding:0 20px;margin-right:18px}
+#bigbox{left:60px;width:900px;top:240px;height:270px;display:flex;align-items:center;white-space:nowrap}
+#big{font-weight:900;color:#fff;line-height:1;letter-spacing:.01em;text-shadow:0 0 36px rgba(251,191,36,.55),0 6px 0 rgba(0,0,0,.35);
+  background:linear-gradient(180deg,#fff7d6,#fbbf24);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 22px rgba(251,191,36,.45))}
+#big small{font-size:.42em;margin-left:.08em;font-weight:900}
+#where{left:60px;width:900px;top:530px;font-weight:900;white-space:nowrap;color:#fff;line-height:1.1}
+#where span{color:var(--cy);margin-left:.25em}
+#tri{left:60px;width:900px;top:750px}
+#tri .h,#bands .h{font-size:40px;font-weight:800;color:var(--mut);letter-spacing:.1em;margin-bottom:12px;white-space:nowrap}
+#tiles{display:flex;gap:28px}
+.tl{width:170px;height:170px;border-radius:32px;display:grid;place-items:center;font-size:128px;font-weight:900;border:6px solid rgba(255,255,255,.55);box-shadow:0 10px 0 rgba(0,0,0,.35)}
+.b1{background:#fff;color:#111}.b2{background:#111;color:#fff;border-color:#9aa}.b3{background:#e23b3b;color:#fff}
+.b4{background:#2f6fe0;color:#fff}.b5{background:#f6d21c;color:#111}.b6{background:#1fae5b;color:#fff}
+.sep{align-self:center;font-size:52px;color:var(--mut);margin:0 -8px}
+#pay{left:60px;width:900px;top:1000px}
+#pay .row{display:flex;align-items:baseline;gap:22px;white-space:nowrap}
+#pay .u{font-size:38px;color:var(--mut);font-weight:700}
+#pay .v{font-size:88px;font-weight:900;color:var(--am)}
+#bands{left:60px;width:900px;top:1125px}
+.br{display:flex;align-items:center;justify-content:space-between;height:52px;margin-bottom:6px;padding:0 24px;border-radius:14px;
+  background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.10);color:#7d8db0;font-size:34px;font-weight:800;white-space:nowrap}
+.br small{font-size:24px;font-weight:600;margin-left:16px}
+.br .st{font-size:32px;font-weight:900;min-width:120px;text-align:right}
+.br.lit{background:linear-gradient(90deg,rgba(251,191,36,.30),rgba(251,191,36,.12));border-color:var(--am);color:#fff}
+.br.lit .st{color:var(--am)}
+#nb{margin-left:24px;padding:0 20px;border:3px solid var(--rd);color:var(--rd);border-radius:12px;font-size:36px;font-weight:900;letter-spacing:.08em;opacity:0}
+#bubble{left:430px;top:1535px;width:520px;padding:22px 28px;border-radius:30px;background:rgba(10,24,52,.92);border:3px solid var(--cy);
+  font-size:34px;font-weight:800;line-height:1.45;color:#fff;white-space:nowrap}
+#bubble::before{content:"";position:absolute;left:-26px;top:70px;border:16px solid transparent;border-right:26px solid var(--cy)}
+#bubble b{color:var(--am)}
+#cslot{position:absolute;left:70px;bottom:0;width:344px;height:430px;transform-origin:50% 100%}
+#cwrap{position:absolute;left:0;top:0;transform-origin:0 0;transform:scale(.56)}
+#cwrap img{position:absolute;display:block}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="brand" class="abs"><div class="mk">B</div><div class="nm" id="brandnm"></div><div class="tg">答え合わせ</div></div>
+  <div id="lab" class="abs"></div>
+  <div id="bigbox" class="abs"><div id="big"></div></div>
+  <div id="where" class="abs"></div>
+  <div id="tri" class="abs"><div class="h">3連単 結果</div><div id="tiles"></div></div>
+  <div id="pay" class="abs"><div class="row"><span class="u">払戻金(100円あたり)</span><span class="v" id="payv"></span></div></div>
+  <div id="bands" class="abs"><div class="h">ツールの買い目<span id="nb"></span></div><div id="brows"></div></div>
+  <div id="bubble" class="abs"></div>
+  <div id="cslot"><div id="cwrap"></div></div>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const B = D.beats;
+const $ = s => document.querySelector(s);
+const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
+const eo = x => { x=clamp(x,0,1); return 1-Math.pow(1-x,3); };
+const eob = x => { x=clamp(x,0,1); const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2); };
+
+/* ---- 中身を入れる ---- */
+$('#brandnm').textContent = D.brand;
+$('#lab').innerHTML = `<b>${D.dateLabel}</b>最高払戻金`;
+$('#big').innerHTML = `${D.payText}<small>円</small>`;
+$('#where').innerHTML = `${D.venue}<span>${D.no}R</span>`;
+$('#payv').textContent = D.payText + '円';
+$('#tiles').innerHTML = D.win.map((n,i)=>`<div class="tl b${n}" data-i="${i}">${n}</div>`).join('<div class="sep">−</div>');
+$('#brows').innerHTML = D.bands.map(b=>`<div class="br${b.hit?' hit':''}"><span>${b.label}<small>確率順 ${b.lo}〜${b.hi}位</small></span><span class="st">—</span></div>`).join('');
+$('#bubble').innerHTML = D.bubble.map((s,i)=> i===D.bubble.length-1 ? `<b>${s}</b>` : s).join('<br>');
+document.getElementById('bubble').style.display = '';
+
+/* 文字を、枠に収まる大きさに自動で合わせる */
+function fit(el, maxW, start, min){
+  let s = start; el.style.fontSize = s+'px';
+  while(el.scrollWidth > maxW && s > min){ s -= 4; el.style.fontSize = s+'px'; }
+}
+fit($('#big'), 900, 330, 120);
+fit($('#where'), 900, 170, 90);
+fit($('#payv'), 480, 88, 56);
+document.querySelectorAll('.br').forEach(r=>{ const sp = r.firstElementChild; let s=38; while(sp.scrollWidth > 640 && s>26){ s-=2; sp.style.fontSize=s+'px'; } });
+
+/* ---- 時刻の決まり ---- */
+const T_TRI = B[1].start, T_PAY = B[2].start, T_BANDS = B[3].start, T_END = B[4].start;
+const T_VERDICT = D.verdictAt;
+
+/* ---- キャスター(横動画と同じ部品・同じ口パク) ---- */
+(function buildCaster(){
+  const C = D.caster, w = $('#cwrap'); let h = `<img src="assets/caster_base.png" style="left:0;top:0">`;
+  for(const [k,p] of Object.entries(C.patches)){
+    const hide = (k==='mouth_closed') ? '' : (k==='eyes_closed' ? 'display:none;' : 'opacity:0;');
+    h += `<img id="p-${k}" src="assets/${k}.png" style="${hide}left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px">`;
+  }
+  w.style.width = C.w+'px'; w.style.height = C.h+'px'; w.innerHTML = h;
+})();
+let _blink = false;
+const OPEN = ['a','i','u','e','o'];
+const ss = x => { x = clamp(x,0,1); return x*x*(3-2*x); };
+function mouthModel(vis){
+  if(vis._m) return vis._m;
+  const n = vis.length, sg = vis.map(v=>({s:v[0], e:v[1], k:v[2], a:1}));
+  for(let i=1;i<n-1;i++){
+    if(sg[i].k==='closed' && (sg[i].e-sg[i].s)<0.12 && sg[i-1].k!=='closed' && sg[i+1].k!=='closed'){
+      sg[i].k = sg[i-1].k; sg[i].a = 0.6;
+    }
+  }
+  sg.forEach((g,i)=>{
+    g.hr = (i===0 || sg[i-1].k==='closed') ? 0.035 : 0.045;
+    g.hf = (i===n-1 || sg[i+1].k==='closed') ? 0.05 : 0.045;
+  });
+  return vis._m = sg;
+}
+function mouthWeights(vis, at){
+  const w = {a:0,i:0,u:0,e:0,o:0};
+  for(const g of mouthModel(vis)){
+    if(g.k==='closed') continue;
+    if(g.s-g.hr > at) break;
+    const x = Math.min((at-(g.s-g.hr))/(2*g.hr), ((g.e+g.hf)-at)/(2*g.hf));
+    const v = ss(x)*g.a; if(v>w[g.k]) w[g.k] = v;
+  }
+  let S = 0; for(const k of OPEN) S += w[k];
+  if(S>1) for(const k of OPEN) w[k] /= S;
+  return w;
+}
+function setMouthWeights(vis, at, speaking){
+  const w = speaking ? mouthWeights(vis, at) : {a:0,i:0,u:0,e:0,o:0};
+  let rest = 0;
+  for(let j=OPEN.length-1;j>=0;j--){
+    const k = OPEN[j], al = rest>=0.999999 ? 0 : w[k]/(1-rest);
+    const g = document.getElementById('p-mouth_'+k); if(g) g.style.opacity = clamp(al,0,1).toFixed(3);
+    rest += w[k];
+  }
+}
+function openness(vis, at){
+  let m = 0; for(let j=0;j<5;j++){ const w = mouthWeights(vis, at-0.06*j); m += w.a+w.i+w.u+w.e+w.o; }
+  return m/5;
+}
+
+function show(el, t0, t, dy){
+  const p = eo((t-t0)/0.35);
+  el.style.opacity = p.toFixed(3);
+  el.style.transform = `translateY(${((1-p)*dy).toFixed(1)}px)`;
+}
+
+function render(t){
+  // 順に出てくる部分(最初の1コマには、最高払戻金・日付・場・レースだけが出ている)
+  show($('#tri'), T_TRI, t, 24);
+  document.querySelectorAll('.tl').forEach(el=>{
+    const i = +el.dataset.i, p = eob((t-(T_TRI+0.12*i))/0.4);
+    el.style.transform = `scale(${(0.6+0.4*p).toFixed(3)})`; el.style.opacity = clamp(p*1.6,0,1).toFixed(3);
+  });
+  show($('#pay'), T_PAY, t, 24);
+  show($('#bands'), T_BANDS, t, 24);
+  const lit = t >= T_VERDICT;
+  document.querySelectorAll('.br').forEach((r,i)=>{
+    const on = lit && r.classList.contains('hit') && t >= T_VERDICT + 0.12*i;
+    r.classList.toggle('lit', on);
+    r.querySelector('.st').textContent = on ? '的中' : '—';
+  });
+  if(D.nohit){ const nb = $('#nb'); nb.textContent = '的中なし'; nb.style.opacity = eo((t-T_VERDICT)/0.3).toFixed(3); }
+  const bub = $('#bubble'); const pb = eo((t-T_END)/0.35);
+  bub.style.opacity = pb.toFixed(3); bub.style.transform = `translateY(${((1-pb)*20).toFixed(1)}px)`;
+  // 口パク・まばたき・呼吸
+  let bi = B.findIndex(b=> t>=b.start && t<b.start+b.dur); if(bi<0) bi = B.length-1;
+  const b = B[bi], lt = t-b.start, at = lt - b.audioOffset;
+  const speaking = (at>=0 && at<=b.audioLen);
+  setMouthWeights(b.visemes, at, speaking);
+  const blink = ((t%3.7)<0.13) || ((t+1.9)%6.1<0.13);
+  if(blink!==_blink){ _blink = blink; document.getElementById('p-eyes_closed').style.display = blink?'':'none'; }
+  const m = speaking ? openness(b.visemes, at) : 0;
+  const lean = speaking ? Math.pow(Math.sin(Math.PI*clamp(at/0.8,0,1)),2) : 0;
+  const rot = Math.sin(t*0.7)*0.45 + Math.sin(t*1.7+1)*0.12 + lean*0.25;
+  const sy = 1 + 0.0035*Math.sin(t*1.5) + 0.008*m + 0.006*lean;
+  const sx = 1 + 0.0015*Math.sin(t*1.5) + 0.003*m + 0.003*lean;
+  document.getElementById('cslot').style.transform = `translate(${(Math.sin(t*0.9)*2.2).toFixed(2)}px,8px) rotate(${rot.toFixed(3)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+}
+render(0);
+</script>
+</body>
+</html>
