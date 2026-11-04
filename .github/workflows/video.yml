@@ -103,6 +103,7 @@ jobs:
           path: |
             out/*.mp4
             out/description.txt
+            out/youtube_meta.json
             out/timeline.json
             out/thumbnail_*.jpg
           if-no-files-found: ignore
@@ -130,6 +131,43 @@ jobs:
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python upload_youtube.py --date "$DATE_ARG" --out out $EXTRA
 
+      # ---- ここから ショート(1日1本)。失敗しても、横動画は成功のまま残る。失敗は、この手順に赤い印と文で出る ----
+      - name: ショートを作る(失敗しても、横動画は成功のまま)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+        run: |
+          python build_short.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
+
+      - name: ショートを保存(Actionsの画面の下の Artifacts からダウンロード)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: boat-short-${{ steps.d.outputs.date || 'latest' }}
+          path: |
+            out/short_*.mp4
+            out/short_meta.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: ショートをYouTubeに投稿する(失敗しても、横動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_short.py --date "$DATE_ARG" --out out $EXTRA
+      # ---- ここまで ----
+
       - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)
         if: github.event.inputs.voice != 'dummy'
         continue-on-error: true
@@ -144,5 +182,22 @@ jobs:
               sleep 5
             done
             echo "::warning::投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
+
+      - name: ショートの投稿の記録を保存(横動画が失敗した日の保険。同じ日の二重投稿を防ぐ)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "YouTubeショート投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::ショートの投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
             exit 1
           fi

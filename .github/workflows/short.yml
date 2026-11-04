@@ -1,0 +1,127 @@
+name: ショートだけ作り直す(手動)
+
+# 横動画は触らず、ショートだけを作って(上げて)直すための、手動用の手順。
+# 「Run workflow」を押して使う。毎日の自動実行は、video.yml の中のショートの手順が行う。
+# できるもの: ショート(mp4)。実行ページの下の Artifacts からダウンロードできる(30日で消える)。
+# 同じ日のショートを、すでに投稿していたら飛ばす。上げ直すときは「force」にチェックを入れる。
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "ショートにする日(YYYY-MM-DD。例 2026-11-02)。空欄なら、days の中の、いちばん新しい日"
+        required: false
+        default: ""
+      voice:
+        description: "voicevox=本番の声(青山龍星) / dummy=音声なしの映像確認用(早い。YouTubeには上げない)"
+        required: true
+        type: choice
+        options: [voicevox, dummy]
+        default: voicevox
+      force:
+        description: "同じ日のショートをもう一度YouTubeに上げる(投稿済みの日でも上げ直す)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: allrace-video
+  cancel-in-progress: false
+
+jobs:
+  short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: ショートにする日を決める
+        id: d
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date }}
+        run: |
+          DATE_ARG=""
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-02 のように入力してください(入力: $DATE_INPUT)"
+              exit 1
+            fi
+            DATE_ARG="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          fi
+          echo "date=$DATE_ARG" >> "$GITHUB_OUTPUT"
+          echo "ショートにする日: ${DATE_ARG:-(いちばん新しい日)}"
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(ffmpeg・日本語フォント・Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          pip install playwright numpy
+          playwright install --with-deps chromium
+
+      - name: VOICEVOXエンジンを起動(Docker)
+        if: github.event.inputs.voice != 'dummy'
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then echo "VOICEVOX ready"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::VOICEVOXエンジンが起動しませんでした"
+          docker logs voicevox || true
+          exit 1
+
+      - name: ショートを作る
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+        run: |
+          python build_short.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
+
+      - name: ショートを保存(Actionsの画面の下の Artifacts からダウンロード)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: boat-short-${{ steps.d.outputs.date || 'latest' }}
+          path: |
+            out/short_*.mp4
+            out/short_meta.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: ショートをYouTubeに投稿する
+        if: github.event.inputs.voice != 'dummy'
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_short.py --date "$DATE_ARG" --out out $EXTRA
+
+      - name: ショートの投稿の記録を保存(同じ日の二重投稿を防ぐ)
+        if: github.event.inputs.voice != 'dummy'
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "YouTubeショート投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::ショートの投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
