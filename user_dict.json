@@ -3,5 +3,7 @@
   {"surface": "三国", "pronunciation": "ミクニ", "accent_type": 1},
   {"surface": "まくり差し", "pronunciation": "マクリザシ", "accent_type": 0},
   {"surface": "ダッシュ勢", "pronunciation": "ダッシュゼイ", "accent_type": 0},
-  {"surface": "万舟", "pronunciation": "マンシュウ", "accent_type": 2}
+  {"surface": "万舟", "pronunciation": "マンシュウ", "accent_type": 2},
+  {"surface": "払戻金", "pronunciation": "ハライモドシキン", "accent_type": 0},
+  {"surface": "最高払戻", "pronunciation": "サイコーハライモドシ", "accent_type": 0}
 ]
