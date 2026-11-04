@@ -1,172 +1,163 @@
 #!/usr/bin/env python3
-"""out/ の動画(mp4)と概要欄(description.txt)を、YouTubeに投稿する。
-
-必要な環境変数: YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN
-任意: YT_PRIVACY (private=非公開 / unlisted=限定公開 / public=公開。既定は private)
+"""out/ にできた動画を、YouTubeに投稿する。
+  - 公開の設定は youtube_privacy.txt の1語(public / unlisted / private)。
+  - 同じ日をすでに投稿していたら(uploaded/日付.json がある)、飛ばす。--force で上げ直す。
+  - 鍵は環境変数 YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN(GitHubのシークレット)。
 """
-import glob
-import json
-import os
-import sys
-import time
+import argparse, glob, json, os, random, re, sys, time
 
-import requests
-
-TOKEN_URL = "https://oauth2.googleapis.com/token"
-API = "https://www.googleapis.com/youtube/v3"
-UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos"
-OUT = os.environ.get("OUT_DIR", "out")
-LEAK = "(YouTubeの「改変または合成されたコンテンツ」にチェック)"  # 投稿者向けのメモ。公開の概要欄には出さない
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+PRIVACY_OK = ("public", "unlisted", "private")
+TAGS = ["ボートレース", "競艇", "答え合わせ", "3連単", "払戻金", "BOAT REX PRO"]
 
 
-def fail(msg):
-    print(f"::error::{msg}")
+def read_privacy():
+    p = os.path.join(HERE, "youtube_privacy.txt")
+    if not os.path.exists(p):
+        print("::error::youtube_privacy.txt がありません(中身は public / unlisted / private のどれか1語)")
+        sys.exit(1)
+    for ln in open(p, encoding="utf-8"):
+        v = ln.strip().lower()
+        if v and not v.startswith("#"):
+            if v not in PRIVACY_OK:
+                print(f"::error::youtube_privacy.txt の中身が正しくありません({v})。public / unlisted / private のどれか1語にしてください")
+                sys.exit(1)
+            return v
+    print("::error::youtube_privacy.txt が空です")
     sys.exit(1)
 
 
-def env(name):
-    v = os.environ.get(name, "").strip()
-    if not v:
-        fail(f"{name} が空です。GitHubの Settings → Secrets and variables → Actions に登録されているか確認してください")
-    return v
+def make_title(date, day):
+    m, d = int(date[4:6]), int(date[6:])
+    t = f"【ボートレース答え合わせ】{m}月{d}日 {len(day['venues'])}場{len(day['races'])}レースの3連単結果と払戻金|BOAT REX PRO"
+    return t[:100]
 
 
-def get_access_token():
-    r = requests.post(TOKEN_URL, data={
-        "client_id": env("YT_CLIENT_ID"),
-        "client_secret": env("YT_CLIENT_SECRET"),
-        "refresh_token": env("YT_REFRESH_TOKEN"),
-        "grant_type": "refresh_token",
-    }, timeout=60)
-    if r.status_code != 200:
+def clean_desc(text, limit=4800):
+    text = text.replace("<", "(").replace(">", ")")
+    b = text.encode("utf-8")
+    if len(b) <= limit:
+        return text
+    print("::warning::概要欄が長いため、後ろを切りました")
+    return b[:limit].decode("utf-8", errors="ignore")
+
+
+def do_upload(youtube, path, body):
+    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.errors import HttpError
+    media = MediaFileUpload(path, mimetype="video/mp4", chunksize=8 * 1024 * 1024, resumable=True)
+    req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+    resp, retry, last = None, 0, -1
+    while resp is None:
         try:
-            j = r.json()
-            detail = f"{j.get('error')} / {j.get('error_description')}"
-        except Exception:
-            detail = r.text[:300]
-        hint = ""
-        if "invalid_grant" in detail:
-            hint = "(YT_REFRESH_TOKEN が無効か、期限切れです。Google側で取り直しが必要です)"
-        fail(f"Googleの認証に失敗しました: {detail} {hint}")
-    return r.json()["access_token"]
-
-
-def clean(text):
-    # タイトル・概要欄に < > は使えない
-    return text.replace("<", "＜").replace(">", "＞")
-
-
-def already_uploaded(token, title):
-    """同じタイトルの動画が、すでにあるか。True/False。調べられないときは None"""
-    h = {"Authorization": f"Bearer {token}"}
-    try:
-        r = requests.get(f"{API}/channels", headers=h, timeout=60,
-                         params={"part": "contentDetails", "mine": "true"})
-        if r.status_code != 200:
-            return None
-        items = r.json().get("items") or []
-        if not items:
-            return None
-        pl = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
-        r = requests.get(f"{API}/playlistItems", headers=h, timeout=60,
-                         params={"part": "snippet", "playlistId": pl, "maxResults": 50})
-        if r.status_code != 200:
-            return None
-        return any(it["snippet"]["title"] == title for it in r.json().get("items", []))
-    except Exception:
-        return None
-
-
-def start_session(token, meta, size):
-    h = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Upload-Content-Length": str(size),
-        "X-Upload-Content-Type": "video/mp4",
-    }
-    params = {"uploadType": "resumable", "part": "snippet,status"}
-    body = json.dumps(meta, ensure_ascii=False).encode("utf-8")
-    r = requests.post(UPLOAD_URL, params=params, headers=h, data=body, timeout=60)
-    if r.status_code == 400 and "containsSyntheticMedia" in r.text:
-        print("::warning::「合成コンテンツ」の自動チェックが受け付けられませんでした。チェックなしで投稿します。YouTubeの画面で手動でチェックしてください")
-        meta["status"].pop("containsSyntheticMedia", None)
-        body = json.dumps(meta, ensure_ascii=False).encode("utf-8")
-        r = requests.post(UPLOAD_URL, params=params, headers=h, data=body, timeout=60)
-    if r.status_code != 200 or "Location" not in r.headers:
-        fail(f"投稿の開始に失敗しました(HTTP {r.status_code}): {r.text[:500]}")
-    return r.headers["Location"]
+            status, resp = req.next_chunk(num_retries=5)
+            if status:
+                pct = int(status.progress() * 100)
+                if pct // 10 != last // 10:
+                    print(f"[upload] {pct}%", flush=True)
+                    last = pct
+        except HttpError as e:
+            if e.resp.status in (500, 502, 503, 504) and retry < 10:
+                retry += 1
+                time.sleep(min(60, 2 ** retry + random.random()))
+                continue
+            raise
+        except (ConnectionError, TimeoutError, OSError) as e:
+            if retry < 10:
+                retry += 1
+                print(f"::warning::通信が切れたのでやり直します({e})")
+                time.sleep(min(60, 2 ** retry + random.random()))
+                continue
+            raise
+    return resp
 
 
 def main():
-    privacy = os.environ.get("YT_PRIVACY", "private").strip() or "private"
-    if privacy not in ("private", "unlisted", "public"):
-        fail(f"YT_PRIVACY が正しくありません: {privacy}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--date", default="", help="例 20261102。空欄なら out の中の動画の日付")
+    ap.add_argument("--out", default=os.path.join(HERE, "out"))
+    ap.add_argument("--force", action="store_true", help="投稿済みの日でも、もう一度上げる")
+    args = ap.parse_args()
 
-    mp4s = sorted(glob.glob(os.path.join(OUT, "boat_check_*.mp4")))
+    mp4s = sorted(glob.glob(os.path.join(args.out, "boat_check_*.mp4")))
+    if args.date:
+        mp4s = [p for p in mp4s if p.endswith(f"boat_check_{args.date}.mp4")]
     if not mp4s:
-        fail(f"{OUT}/ に動画(boat_check_*.mp4)がありません")
-    mp4 = mp4s[-1]
-    with open(os.path.join(OUT, "description.txt"), encoding="utf-8") as f:
-        desc = f.read().replace(LEAK, "").strip() + "\n"
-    title = clean(desc.splitlines()[0].strip())[:100]
-    desc = clean(desc)
-    size = os.path.getsize(mp4)
-    print(f"動画: {mp4} ({size / 1e6:.1f} MB) / タイトル: {title} / 公開設定: {privacy}")
-
-    token = get_access_token()
-
-    dup = already_uploaded(token, title)
-    if dup:
-        print("同じタイトルの動画が、すでに投稿されています。二重投稿を防ぐため、投稿しません。")
+        print("::notice::投稿する動画(out/boat_check_日付.mp4)がありません。投稿しません")
         return 0
-    if dup is None:
-        print("::warning::投稿ずみかどうかを調べられませんでした(権限が足りない可能性)。二重投稿の防止が効いていません")
+    mp4 = mp4s[-1]
+    date = re.search(r"boat_check_(\d{8})\.mp4$", mp4).group(1)
 
-    meta = {
-        "snippet": {
-            "title": title,
-            "description": desc,
-            "categoryId": "17",
-            "defaultLanguage": "ja",
-            "defaultAudioLanguage": "ja",
-        },
-        "status": {
-            "privacyStatus": privacy,
-            "selfDeclaredMadeForKids": False,
-            "containsSyntheticMedia": True,
-        },
+    rec = os.path.join(HERE, "uploaded", f"{date}.json")
+    if os.path.exists(rec) and not args.force:
+        print(f"::notice::{date} はすでにYouTubeに投稿済みです(uploaded/{date}.json)。もう一度上げるときは、手動実行で「force」にチェックを入れてください")
+        return 0
+
+    privacy = read_privacy()
+    with open(os.path.join(HERE, "days", f"{date}.json"), encoding="utf-8") as f:
+        day = json.load(f)
+    with open(os.path.join(args.out, "description.txt"), encoding="utf-8") as f:
+        desc = clean_desc(f.read())
+    title = make_title(date, day)
+
+    miss = [k for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN") if not os.environ.get(k)]
+    if miss:
+        print(f"::error::GitHubのシークレットがありません: {', '.join(miss)}")
+        return 1
+
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from google.auth.exceptions import RefreshError
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    creds = Credentials(token=None, refresh_token=os.environ["YT_REFRESH_TOKEN"],
+                        client_id=os.environ["YT_CLIENT_ID"], client_secret=os.environ["YT_CLIENT_SECRET"],
+                        token_uri="https://oauth2.googleapis.com/token", scopes=SCOPES)
+    try:
+        creds.refresh(Request())
+    except RefreshError as e:
+        print(f"::error::YouTubeの鍵(YT_REFRESH_TOKEN)が使えません。失効した可能性があります。鍵を取り直して、シークレットを入れ替えてください({e})")
+        return 1
+    youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
+
+    body = {
+        "snippet": {"title": title, "description": desc, "tags": TAGS, "categoryId": "17",
+                    "defaultLanguage": "ja", "defaultAudioLanguage": "ja"},
+        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True},
     }
+    print(f"[upload] {os.path.basename(mp4)} ({os.path.getsize(mp4) / 1e6:.1f} MB) 公開設定={privacy}\n[upload] タイトル: {title}", flush=True)
+    try:
+        resp = do_upload(youtube, mp4, body)
+    except HttpError as e:
+        print(f"::error::YouTubeへの投稿に失敗しました: {e.resp.status} {e.content.decode('utf-8', errors='ignore')[:600]}")
+        return 1
 
-    last = ""
-    for attempt in range(1, 4):
+    vid = resp["id"]
+    got = resp.get("status", {}).get("privacyStatus", "?")
+    print(f"[done] 投稿できました: https://youtu.be/{vid} (指定 {privacy} / 返ってきた設定 {got})")
+    thumb = os.path.join(args.out, f"thumbnail_{date}.jpg")
+    thumb_note = "サムネイル: 作っていないので、付けていません"
+    if os.path.exists(thumb):
         try:
-            loc = start_session(token, meta, size)
-            with open(mp4, "rb") as fh:
-                r = requests.put(loc, data=fh, timeout=(30, 1800), allow_redirects=False,
-                                 headers={"Content-Type": "video/mp4", "Content-Length": str(size)})
-            if r.status_code in (200, 201):
-                j = r.json()
-                vid = j["id"]
-                got = (j.get("status") or {}).get("privacyStatus", "?")
-                url = f"https://www.youtube.com/watch?v={vid}"
-                print(f"投稿できました: {url} (公開設定: {got})")
-                if got != privacy:
-                    print(f"::warning::希望は {privacy} でしたが、実際は {got} です(Google側の審査が済んでいないと、非公開に固定されます)")
-                summary = os.environ.get("GITHUB_STEP_SUMMARY")
-                if summary:
-                    with open(summary, "a", encoding="utf-8") as sf:
-                        sf.write(f"### YouTubeに投稿しました\n{url}\n\n公開設定: {got}\n")
-                return 0
-            last = f"HTTP {r.status_code}: {r.text[:300]}"
-        except requests.RequestException as e:
-            last = f"通信エラー: {e}"
-        print(f"::warning::投稿に失敗({attempt}/3回目): {last}")
-        if attempt < 3:
-            time.sleep(30)
-            if already_uploaded(token, title):
-                print("失敗の表示でしたが、動画は上がっていました。ここで終わります。")
-                return 0
-    fail(f"3回やっても投稿できませんでした: {last}")
+            from googleapiclient.http import MediaFileUpload
+            youtube.thumbnails().set(videoId=vid, media_body=MediaFileUpload(thumb, mimetype="image/jpeg")).execute()
+            thumb_note = "サムネイル: 付けました"
+            print("[thumbnail] サムネイルを付けました")
+        except HttpError as e:
+            thumb_note = "サムネイル: 付けられませんでした(動画の投稿は成功しています)"
+            print(f"::warning::サムネイルを付けられませんでした(動画の投稿は成功しています): {e.resp.status} {e.content.decode('utf-8', errors='ignore')[:300]}")
+    os.makedirs(os.path.dirname(rec), exist_ok=True)
+    with open(rec, "w", encoding="utf-8") as f:
+        json.dump({"videoId": vid, "privacy": privacy, "title": title,
+                   "at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC"}, f, ensure_ascii=False, indent=1)
+    sp = os.environ.get("GITHUB_STEP_SUMMARY")
+    if sp:
+        with open(sp, "a", encoding="utf-8") as f:
+            f.write(f"### YouTubeに投稿しました({date})\n指定した公開設定: {privacy}\n\n"
+                    f"- 動画: https://youtu.be/{vid}\n- 管理画面(公開設定を確認): https://studio.youtube.com/video/{vid}/edit\n- {thumb_note}\n")
+    return 0
 
 
 if __name__ == "__main__":
