@@ -4,8 +4,7 @@ name: 答え合わせ動画(本番)
 # それをきっかけに、自動で動画を作る。手動で「Run workflow」を押しても動く。
 # できるもの: 動画(mp4)・概要欄の文章(description.txt。場ごとのチャプターつき)。
 #   実行ページの下の Artifacts からダウンロードする(30日で消える)。
-# できあがったら、YouTubeにも自動で投稿する(.github/workflows/upload_youtube.py)。公開設定は、下の privacy で決まる。
-#   音声が dummy の実行と、privacy が skip の実行では、投稿しない。
+# 動画ができたら、YouTubeに自動で投稿する(公開の設定は youtube_privacy.txt の1語。音声なし(dummy)のときは投稿しない)。
 on:
   push:
     paths:
@@ -22,15 +21,14 @@ on:
         type: choice
         options: [voicevox, dummy]
         default: voicevox
-      privacy:
-        description: "YouTubeの公開設定。private=非公開 / unlisted=限定公開 / public=公開 / skip=投稿しない"
-        required: true
-        type: choice
-        options: [private, unlisted, public, skip]
-        default: private
+      force:
+        description: "同じ日をもう一度YouTubeに上げる(投稿済みの日でも上げ直す)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: allrace-video
@@ -109,14 +107,33 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: YouTubeに投稿
-        if: github.event.inputs.voice != 'dummy' && github.event.inputs.privacy != 'skip'
+      - name: YouTubeに投稿する
+        if: github.event.inputs.voice != 'dummy'
         env:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
-          # 自動で動くとき(days が届いたとき)の公開設定。審査が通ったら、private を public に変える
-          YT_PRIVACY: ${{ github.event.inputs.privacy || 'private' }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
         run: |
-          pip install requests
-          python .github/workflows/upload_youtube.py
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_youtube.py --date "$DATE_ARG" --out out $EXTRA
+
+      - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)
+        if: github.event.inputs.voice != 'dummy'
+        continue-on-error: true
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "YouTube投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
