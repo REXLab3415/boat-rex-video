@@ -26,6 +26,84 @@ BANDS = [("prob", "確率(高)"), ("hm", "確率(高)〜(中)"), ("bal", "確率
 MIN_DUR_RACE = 7.0
 SITE_URL = "https://boat-scenario-pro.sg34153415.workers.dev"
 
+BASE_TAGS = ["競艇", "ボートレース", "ボートレース結果", "3連単", "払戻金", "結果", "答え合わせ", "万舟", "BOAT REX PRO"]
+MIN_CHAPTER = 10        # YouTubeのチャプターは、1つ10秒以上(これ未満があると、全体が無効になる)
+
+
+def mmss(sec):
+    sec = int(sec)
+    return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}" if sec >= 3600 else f"{sec // 60:02d}:{sec % 60:02d}"
+
+
+def build_chapters(beats, total):
+    """各場の最初の音声の開始(実測)から、チャプターを作る。10秒未満になる章は外す(最初の章だけは、次の章とまとめる)"""
+    ch = [["オープニング", int(beats[0]["start"])]]
+    seen = set()
+    for bt in beats:
+        v = bt["race"]["venue"] if bt["type"] == "race" else bt.get("venue") if bt["type"] == "fail" else None
+        if v and v not in seen:
+            seen.add(v)
+            ch.append([v, int(bt["start"])])
+    ends = [b for b in beats if b["type"] == "ending"]
+    if ends:
+        ch.append(["エンディング", int(ends[0]["start"])])
+    end_t = int(total)
+    while True:
+        bad = None
+        for i, (_, t) in enumerate(ch):
+            nxt = ch[i + 1][1] if i + 1 < len(ch) else end_t
+            if nxt - t < MIN_CHAPTER:
+                bad = i
+                break
+        if bad is None or len(ch) <= 1:
+            break
+        if bad == 0 and len(ch) > 1:
+            print(f"::warning::「{ch[0][0]}」が10秒未満のため、次の「{ch[1][0]}」とまとめました")
+            ch[0][0] = f"{ch[0][0]}・{ch[1][0]}"
+            del ch[1]
+        else:
+            print(f"::warning::チャプター「{ch[bad][0]}」が10秒未満のため、チャプターから外しました")
+            del ch[bad]
+    if len(ch) < 3:
+        print("::warning::チャプターが3つ未満のため、チャプターは付けません(YouTubeの条件)")
+        return []
+    return [f"{mmss(t)} {name}" for name, t in ch]
+
+
+def build_youtube_meta(date, day, races, beats, total, partial=False):
+    """タイトル・概要欄・タグ。値はすべて、その日のデータ(days/日付.json)と、動画の実測の時刻から作る"""
+    m, d = int(date[4:6]), int(date[6:])
+    venues = list(day["venues"])
+    nfails = len(day.get("fails", []))
+    top = max(races, key=lambda r: int(r["pay"]))        # 同額が複数のときは、最初のレース
+    maxpay = int(top["pay"])
+    nhit = sum(1 for r in races if r["hit"])
+    zen = "全" if (day.get("scope") == "全場" and nfails == 0 and not partial) else ""   # 「全」は、動画に入っている範囲が全場・全レースのときだけ
+    nv, nr = len(venues), len(races)
+    title = f"【ボートレース結果】{m}/{d} {zen}{nv}場{zen}{nr}Rの3連単結果と払戻金|最高{maxpay:,}円・的中{nhit}件"
+    if len(title) > 100:
+        raise ValueError(f"タイトルが100文字を超えました({len(title)}文字)")
+    chapters = build_chapters(beats, total)
+    lines = [f"{m}/{d}のボートレース{zen}{nv}場{zen}{nr}Rの3連単結果と払戻金を、ボートレース解析ツール「BOAT REX PRO」で照らし合わせ。"
+             f"最高払戻金は{top['venue']}{top['no']}Rの{maxpay:,}円、的中は{nhit}件でした。", ""]
+    if chapters:
+        lines += ["■チャプター"] + chapters + [""]
+    lines += ["■ボートレース解析ツール BOAT REX PRO",
+              "レースの展開を解析し、買い目を出すボートレース解析ツールです。この動画では、その買い目を実際の結果と照らし合わせています。",
+              f"公式サイト: {SITE_URL}", "",
+              "■クレジット", "VOICEVOX:青山龍星", "",
+              "#ボートレース #競艇 #3連単"]
+    tags = list(BASE_TAGS)
+    for v in venues:
+        if v not in tags:
+            tags.append(v)
+    while sum(len(t) + (2 if " " in t else 0) for t in tags) + len(tags) - 1 > 480 and len(tags) > len(BASE_TAGS):
+        print(f"::warning::タグが500文字に収まらないため、「{tags[-1]}」を外しました")
+        tags.pop()
+    return {"date": date, "title": title, "description": "\n".join(lines) + "\n", "tags": tags,
+            "maxpay": maxpay, "maxVenue": top["venue"], "maxNo": top["no"], "nhit": nhit, "nvenues": nv, "nraces": nr}
+
+
 
 def latest_date():
     base = os.path.join(HERE, "days")
@@ -236,27 +314,16 @@ def main():
         f.write(html)
     with open(os.path.join(args.out, "timeline.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    def mmss(sec):
-        sec = int(sec)
-        return f"{sec // 3600}:{sec % 3600 // 60:02d}:{sec % 60:02d}" if sec >= 3600 else f"{sec // 60}:{sec % 60:02d}"
-    chapters = ["0:00 オープニング"]
-    seen = set()
-    for bt in beats:
-        vname = bt["race"]["venue"] if bt["type"] == "race" else bt.get("venue") if bt["type"] == "fail" else None
-        if vname and vname not in seen:
-            seen.add(vname)
-            chapters.append(f"{mmss(bt['start'])} {vname}")
-    note = f"※取得できなかった・結果が出ていなかった・欠場があったなどで、お伝えできなかったレースが{nfails}あります。\n" if nfails else ""
-    desc = (f"{m}月{d}日 解析ツール「{args.brand}」答え合わせ\n"
-            f"対象: {'・'.join(venues)}の{len(races)}レース。ツールの攻め筋は、1コースの「{move1}」を選択した場合です。\n"
-            + note
-            + f"ツールの詳細: {SITE_URL}\n\n"
-            + "\n".join(chapters) + "\n\n"
-            + "※予想の的中や利益をお約束するものではありません。\n"
-            + "音声:VOICEVOX:青山龍星\n"
-            + "※映像のキャスターと背景は、AIで生成した画像です(YouTubeの「改変または合成されたコンテンツ」にチェック)。\n")
-    with open(os.path.join(args.out, "description.txt"), "w", encoding="utf-8") as f:
-        f.write(desc)
+    try:
+        meta = build_youtube_meta(date, day, races, beats, total, partial=bool(args.limit))
+    except Exception as e:           # 作れなくても、動画は作る。投稿は止まる(投稿側が、youtube_meta.json がないことを検知する)
+        print(f"::error::タイトル・概要欄を作れませんでした({type(e).__name__}: {e})。動画は作りますが、YouTubeへは投稿されません")
+        meta = None
+    if meta:
+        with open(os.path.join(args.out, "youtube_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=1)
+        with open(os.path.join(args.out, "description.txt"), "w", encoding="utf-8") as f:
+            f.write(meta["description"])
     print(f"[timeline] total {total:.1f}s ({total / 60:.1f}分)  races={len(races)}")
 
     stills = [float(x) for x in args.stills.split(",")] if args.stills else None

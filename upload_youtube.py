@@ -9,7 +9,6 @@ import argparse, glob, json, os, random, re, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 PRIVACY_OK = ("public", "unlisted", "private")
-TAGS = ["ボートレース", "競艇", "答え合わせ", "3連単", "払戻金", "BOAT REX PRO"]
 
 
 def read_privacy():
@@ -26,12 +25,6 @@ def read_privacy():
             return v
     print("::error::youtube_privacy.txt が空です")
     sys.exit(1)
-
-
-def make_title(date, day):
-    m, d = int(date[4:6]), int(date[6:])
-    t = f"【ボートレース答え合わせ】{m}月{d}日 {len(day['venues'])}場{len(day['races'])}レースの3連単結果と払戻金|BOAT REX PRO"
-    return t[:100]
 
 
 def clean_desc(text, limit=4800):
@@ -95,11 +88,17 @@ def main():
         return 0
 
     privacy = read_privacy()
-    with open(os.path.join(HERE, "days", f"{date}.json"), encoding="utf-8") as f:
-        day = json.load(f)
-    with open(os.path.join(args.out, "description.txt"), encoding="utf-8") as f:
-        desc = clean_desc(f.read())
-    title = make_title(date, day)
+    meta_path = os.path.join(args.out, "youtube_meta.json")
+    if not os.path.exists(meta_path):
+        print("::error::out/youtube_meta.json がありません(動画づくりの段階で、タイトル・概要欄を作れなかった)。投稿しません。動画づくりの手順の記録に出ている赤い文を確認してください")
+        return 1
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    if meta.get("date") != date:
+        print(f"::error::youtube_meta.json の日付({meta.get('date')})が、動画の日付({date})と違います。投稿しません")
+        return 1
+    title, tags = meta["title"][:100].replace("<", "(").replace(">", ")"), meta["tags"]
+    desc = clean_desc(meta["description"])
 
     miss = [k for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN") if not os.environ.get(k)]
     if miss:
@@ -123,7 +122,7 @@ def main():
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
     body = {
-        "snippet": {"title": title, "description": desc, "tags": TAGS, "categoryId": "17",
+        "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "17",
                     "defaultLanguage": "ja", "defaultAudioLanguage": "ja"},
         "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True},
     }
@@ -137,6 +136,17 @@ def main():
     vid = resp["id"]
     got = resp.get("status", {}).get("privacyStatus", "?")
     print(f"[done] 投稿できました: https://youtu.be/{vid} (指定 {privacy} / 返ってきた設定 {got})")
+    thumb = os.path.join(args.out, f"thumbnail_{date}.jpg")
+    thumb_note = "サムネイル: 作っていないので、付けていません"
+    if os.path.exists(thumb):
+        try:
+            from googleapiclient.http import MediaFileUpload
+            youtube.thumbnails().set(videoId=vid, media_body=MediaFileUpload(thumb, mimetype="image/jpeg")).execute()
+            thumb_note = "サムネイル: 付けました"
+            print("[thumbnail] サムネイルを付けました")
+        except HttpError as e:
+            thumb_note = "サムネイル: 付けられませんでした(動画の投稿は成功しています)"
+            print(f"::warning::サムネイルを付けられませんでした(動画の投稿は成功しています): {e.resp.status} {e.content.decode('utf-8', errors='ignore')[:300]}")
     os.makedirs(os.path.dirname(rec), exist_ok=True)
     with open(rec, "w", encoding="utf-8") as f:
         json.dump({"videoId": vid, "privacy": privacy, "title": title,
@@ -145,7 +155,7 @@ def main():
     if sp:
         with open(sp, "a", encoding="utf-8") as f:
             f.write(f"### YouTubeに投稿しました({date})\n指定した公開設定: {privacy}\n\n"
-                    f"- 動画: https://youtu.be/{vid}\n- 管理画面(公開設定を確認): https://studio.youtube.com/video/{vid}/edit\n")
+                    f"- 動画: https://youtu.be/{vid}\n- 管理画面(公開設定を確認): https://studio.youtube.com/video/{vid}/edit\n- {thumb_note}\n")
     return 0
 
 
