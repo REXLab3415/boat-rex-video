@@ -166,6 +166,21 @@ jobs:
           EXTRA=""
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python upload_short.py --date "$DATE_ARG" --out out $EXTRA
+
+      # ---- Xの投稿文を作って、メールで送る(失敗しても、動画は成功のまま)。ツールの的中が0件の日は送らない ----
+      - name: Xの投稿文をメールで送る(失敗しても、動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python x_post_mail.py --date "$DATE_ARG" $EXTRA
       # ---- ここまで ----
 
       - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)

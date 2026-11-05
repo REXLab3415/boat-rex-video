@@ -1,0 +1,50 @@
+name: Xの投稿文をメールで送る(手動・試験と送り直し用)
+
+# 動画は作らず、days/日付.json から投稿文を作って、メールで送るだけ。
+# 毎日の自動実行は、video.yml の中の手順が行う。これは、試験と、送り直しのための手動用。
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日付(YYYY-MM-DD。例 2026-11-04)。空欄なら、days の中の、いちばん新しい日"
+        required: false
+        default: ""
+      dry:
+        description: "送らずに、投稿文とリンクを実行の記録に出すだけ(メールの設定の前の確認用)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 投稿文を作って、メールで送る
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_INPUT: ${{ github.event.inputs.date }}
+          DRY: ${{ github.event.inputs.dry }}
+        run: |
+          DATE_ARG=""
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-04 のように入力してください(入力: $DATE_INPUT)"
+              exit 1
+            fi
+            DATE_ARG="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          fi
+          EXTRA="--force"
+          if [ "$DRY" = "true" ]; then EXTRA="--dry-run"; fi
+          python x_post_mail.py --date "$DATE_ARG" $EXTRA
