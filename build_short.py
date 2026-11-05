@@ -42,14 +42,21 @@ def need(cond, msg):
         raise ShortError(msg)
 
 
+class NoHit(Exception):
+    """その日、ツールが的中したレースがない(ショートは作らない)"""
+
+
 def pick_top(day):
-    """最高払戻のレース1本(同額が複数なら、最初のレース)。取れない値があれば、止める"""
+    """ツールが的中したレースの中で、払戻金がいちばん高いレース1本(同額が複数なら、最初のレース)。取れない値があれば、止める"""
     races = day.get("races") or []
     need(races, "答え合わせできたレースがありません")
     for r in races:
         for k in ("venue", "no", "win", "pay", "bandHit"):
             need(k in r, f"{r.get('venue')}{r.get('no')}Rに「{k}」がありません")
-    top = max(races, key=lambda r: int(r["pay"]))          # max は、同額なら最初のものを返す
+    hit_races = [r for r in races if any(r["bandHit"].values())]
+    if not hit_races:
+        raise NoHit()
+    top = max(hit_races, key=lambda r: int(r["pay"]))      # max は、同額なら最初のものを返す
     need(str(top["win"]).count("-") == 2 and all(x.isdigit() and 1 <= int(x) <= 6 for x in str(top["win"]).split("-")),
          f"3連単の形が正しくありません({top['win']})")
     need(int(top["pay"]) > 0, f"払戻金が正しくありません({top['pay']})")
@@ -82,7 +89,7 @@ def build_beats(date, day, top, bands, compact):
         end = ("全場の答え合わせは、チャンネルの最新動画で。" if all_venues
                else "ほかのレースの答え合わせは、チャンネルの最新動画で。")
     # 最初の3つは、続けて1文に聞こえる(文の途中なので、句点を付けない)
-    texts = [f"{m}月{d}日、本日の払戻金の最高額は、{top['venue']}ボート、{top['no']}レース",
+    texts = [f"{m}月{d}日、本日、ツールが的中した中で、払戻金の最高額は、{top['venue']}ボート、{top['no']}レース",
              f"3連単、{a}、{b}、{c}",
              f"払戻金は、{top['pay']}円。",
              verdict, end]
@@ -170,7 +177,7 @@ def build_meta(date, day, top, bands, hit_keys):
             lines += [f"全レースの結果はこちら→ https://www.youtube.com/watch?v={vid}", ""]
     if not lines:
         print("::notice::横動画の投稿の記録(uploaded/日付.json)がないため、概要欄に横動画のリンクは入れません")
-    lines += [f"{m}/{d}のボートレース、最高払戻金は{top['venue']}{top['no']}Rの3連単{top['win']}、100円あたり{pay:,}円。"
+    lines += [f"{m}/{d}のボートレース、{top['venue']}{top['no']}Rの3連単{top['win']}。"
               f"ボートレース解析ツール「BOAT REX PRO」の買い目で答え合わせ。{verdict}",
               f"公式サイト: {SITE_URL}", "",
               "■クレジット", "VOICEVOX:青山龍星", "",
@@ -248,7 +255,10 @@ def main():
             sp = os.environ.get("GITHUB_STEP_SUMMARY")
             if sp:
                 with open(sp, "a", encoding="utf-8") as f:
-                    f.write(f"### {date} のショート\n{top['venue']}{top['no']}R・最高払戻 {pay:,}円・ツールの買い目 {'的中あり' if hit_keys else '的中なし'}・長さ {total:.1f}秒\n")
+                    f.write(f"### {date} のショート\n{top['venue']}{top['no']}R・ツール的中の最高払戻 {pay:,}円・ツールの買い目 {'的中あり' if hit_keys else '的中なし'}・長さ {total:.1f}秒\n")
+        return 0
+    except NoHit:
+        print("::notice::その日は、ツールが的中したレースがないため、ショートは作りません(投稿もしません)")
         return 0
     except ShortError as e:
         print(f"::error title=ショートを作れませんでした::{e}(横動画には影響しません)")

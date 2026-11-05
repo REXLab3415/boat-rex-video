@@ -19,7 +19,7 @@ def build(date, out):
     m, d = int(date[4:6]), int(date[6:])
     data = {
         "dateLabel": f"{m}/{d}",
-        "maxPay": max(int(r["pay"]) for r in races),
+        "maxPay": max((int(r["pay"]) for r in races if r["hit"]), default=None),   # ツールが的中したレースの中の最高払戻。的中が0件なら、なし
         "nraces": len(races),
         "nhit": sum(1 for r in races if r["hit"]),
         "sub": f"{len(day['venues'])}場の3連単を、ツールの買い目で答え合わせ",
@@ -45,7 +45,7 @@ def build(date, out):
             if os.path.getsize(jpg) <= LIMIT:
                 break
         b.close()
-    print(f"[thumbnail] {jpg} ({os.path.getsize(jpg) / 1e3:.0f} KB) 最高払戻={data['maxPay']:,} 的中あり={data['nhit']}/{data['nraces']}")
+    print(f"[thumbnail] {jpg} ({os.path.getsize(jpg) / 1e3:.0f} KB) ツール的中の最高払戻={'なし' if data['maxPay'] is None else format(data['maxPay'], ',')} 的中あり={data['nhit']}/{data['nraces']}")
     return jpg
 
 

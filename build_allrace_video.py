@@ -75,17 +75,18 @@ def build_youtube_meta(date, day, races, beats, total, partial=False):
     m, d = int(date[4:6]), int(date[6:])
     venues = list(day["venues"])
     nfails = len(day.get("fails", []))
-    top = max(races, key=lambda r: int(r["pay"]))        # 同額が複数のときは、最初のレース
-    maxpay = int(top["pay"])
-    nhit = sum(1 for r in races if r["hit"])
+    hit_races = [r for r in races if r["hit"]]
+    nhit = len(hit_races)
+    top = max(hit_races, key=lambda r: int(r["pay"])) if hit_races else None      # ツールが的中したレースの中の最高払戻(同額なら最初のレース)
+    maxpay = int(top["pay"]) if top else 0
     zen = "全" if (day.get("scope") == "全場" and nfails == 0 and not partial) else ""   # 「全」は、動画に入っている範囲が全場・全レースのときだけ
     nv, nr = len(venues), len(races)
-    title = f"【ボートレース結果】{m}/{d} {zen}{nv}場{zen}{nr}Rの3連単結果と払戻金|最高{maxpay:,}円・的中{nhit}件"
+    title = f"【ボートレース結果】{m}/{d} {zen}{nv}場{zen}{nr}Rの3連単結果と払戻金|的中{nhit}件・最高{maxpay:,}円" if nhit else f"【ボートレース結果】{m}/{d} {zen}{nv}場{zen}{nr}Rの3連単結果と払戻金|的中0件"
     if len(title) > 100:
         raise ValueError(f"タイトルが100文字を超えました({len(title)}文字)")
     chapters = build_chapters(beats, total)
     lines = [f"{m}/{d}のボートレース{zen}{nv}場{zen}{nr}Rの3連単結果と払戻金を、ボートレース解析ツール「BOAT REX PRO」で照らし合わせ。"
-             f"最高払戻金は{top['venue']}{top['no']}Rの{maxpay:,}円、的中は{nhit}件でした。", ""]
+             f"的中は{nhit}件でした。", ""]
     if chapters:
         lines += ["■チャプター"] + chapters + [""]
     lines += ["■ボートレース解析ツール BOAT REX PRO",
@@ -101,7 +102,7 @@ def build_youtube_meta(date, day, races, beats, total, partial=False):
         print(f"::warning::タグが500文字に収まらないため、「{tags[-1]}」を外しました")
         tags.pop()
     return {"date": date, "title": title, "description": "\n".join(lines) + "\n", "tags": tags,
-            "maxpay": maxpay, "maxVenue": top["venue"], "maxNo": top["no"], "nhit": nhit, "nvenues": nv, "nraces": nr}
+            "maxpay": maxpay, "maxVenue": top["venue"] if top else None, "maxNo": top["no"] if top else None, "nhit": nhit, "nvenues": nv, "nraces": nr}
 
 
 

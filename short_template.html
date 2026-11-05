@@ -74,7 +74,7 @@ const eob = x => { x=clamp(x,0,1); const c1=1.70158,c3=c1+1; return 1+c3*Math.po
 
 /* ---- 中身を入れる ---- */
 $('#brandnm').textContent = D.brand;
-$('#lab').innerHTML = `<b>${D.dateLabel}</b>最高払戻金`;
+$('#lab').innerHTML = `<b>${D.dateLabel}</b>ツール的中の最高払戻金`;
 $('#big').innerHTML = `${D.payText}<small>円</small>`;
 $('#where').innerHTML = `${D.venue}<span>${D.no}R</span>`;
 $('#payv').textContent = D.payText + '円';
