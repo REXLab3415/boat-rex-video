@@ -79,7 +79,7 @@ def build_beats(date, day, top, bands, compact):
     a, b, c = str(top["win"]).split("-")
     hit_keys = [bd["key"] for bd in bands if top["bandHit"][bd["key"]]]
     if hit_keys:
-        verdict = f"ツールの買い目、的中です。" if compact else f"ツールの買い目は、{spoken_bands(hit_keys)}で、的中です。"
+        verdict = f"ツールの買い目、的中です。" if compact else "ツールの買い目は、ごらんの確率帯で的中が出ています。"
     else:
         verdict = "ツールの買い目に、的中はありません。"
     all_venues = day.get("scope") == "全場" and not day.get("fails")
