@@ -16,11 +16,19 @@ import json
 import os
 import smtplib
 import sys
+import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html import escape
 
 BANDS = ["prob", "hm", "bal", "ml", "ev"]
+HASHTAGS = "#ボートレース #競艇 #回収率"   # 投稿文の末尾に入れる。変えるときはここだけ
+
+
+def x_weight(s):
+    """Xの文字数の数え方(日本語は1文字=2、半角は1。上限280)"""
+    return sum(1 if (ord(c) <= 0x10FF or 0x2000 <= ord(c) <= 0x200D or 0x2010 <= ord(c) <= 0x201F
+                     or 0x2032 <= ord(c) <= 0x2037) else 2 for c in s)
 
 
 def load_all(upto):
@@ -78,6 +86,17 @@ def html_table(rows):
     return "\n".join(h)
 
 
+def build_post(date, d):
+    """Xの投稿文:その日の、5帯ごとの回収率(全買い目を1点100円ずつ買った場合)"""
+    rows = "\n".join(f"{b['label']} {b['roi']}%" for b in d["bands"])
+    for head in (f"{fmt_date(date)} ボートレース 確率帯ごとの回収率(買い目を全部1点100円ずつ購入した場合)",
+                 f"{fmt_date(date)} ボートレース 確率帯別の回収率(全買い目100円ずつ)"):
+        text = f"{head}\n{rows}\n{HASHTAGS}"
+        if x_weight(text) <= 280:
+            break
+    return text
+
+
 def build(date):
     d = json.load(open(f"summary/{date}.json", encoding="utf-8"))
     days = load_all(date)
@@ -86,10 +105,17 @@ def build(date):
     span = f"{fmt_date(days[0]['date'])}〜{fmt_date(days[-1]['date'])}の{len(days)}日分・{n_races}レース" if days else ""
     subject = f"【BOAT REX PRO】{fmt_date(date)} 5帯の集計(全買い目100円ずつ)"
     head = f"全買い目を1点100円ずつ購入した場合の集計です。対象: {d.get('scope','')}・{d['races_checked']}レース(答え合わせできなかった{d['races_excluded']}レースは除く)。"
-    txt = f"{head}\n\n■{fmt_date(date)}の分\n{text_table(day_rows(d))}\n\n■累計({span})\n{text_table(cum)}\n"
+    post = build_post(date, d)
+    intent = "https://x.com/intent/tweet?text=" + urllib.parse.quote(post, safe="")
+    print(f"[文字数] {x_weight(post)} / 280")
+    txt = (f"{head}\n\n■{fmt_date(date)}の分\n{text_table(day_rows(d))}\n\n■累計({span})\n{text_table(cum)}\n"
+           f"\n■Xに投稿する(下のリンクを押すと、文章が入った状態で投稿画面が開きます。開かないときは、下の投稿文をコピーして貼ってください)\n{intent}\n\n▼投稿文(コピー用)\n{post}\n")
     html = (f"<p>{escape(head)}</p><h3>{fmt_date(date)}の分</h3>{html_table(day_rows(d))}"
             f"<h3>累計({escape(span)})</h3>{html_table(cum)}"
-            f"<p style=\"color:#666;font-size:12px\">累計は、非公開側から集計が届いた日(答え合わせのある日)の合計です。</p>")
+            f"<p style=\"color:#666;font-size:12px\">累計は、非公開側から集計が届いた日(答え合わせのある日)の合計です。</p>"
+            f"<hr><p><a href=\"{intent}\" style=\"font-size:20px;font-weight:bold\">▶ Xの投稿画面を開く</a></p>"
+            f"<p>開かないとき・文字が崩れるときは、下の投稿文をコピーして、Xに貼り付けてください。</p>"
+            f"<p style=\"white-space:pre-wrap;border:1px solid #ccc;padding:10px\">{escape(post)}</p>")
     return subject, txt, html
 
 

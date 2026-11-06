@@ -13,6 +13,13 @@ from email.mime.text import MIMEText
 from email.header import Header
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+HASHTAGS = "#ボートレース #競艇 #3連単"   # 投稿文の末尾(URLの1つ上の行)に入れる。変えるときはここだけ
+
+
+def x_weight(s):
+    """Xの文字数の数え方(日本語は1文字=2、半角は1。上限280)"""
+    return sum(1 if (ord(c) <= 0x10FF or 0x2000 <= ord(c) <= 0x200D or 0x2010 <= ord(c) <= 0x201F
+                     or 0x2032 <= ord(c) <= 0x2037) else 2 for c in s)
 
 
 def latest_date():
@@ -71,7 +78,11 @@ def main():
         return 0
 
     url = video_url(date)
-    text = post["text"] + (f"\n{url}" if url else "")
+    text = post["text"] + f"\n{HASHTAGS}" + (f"\n{url}" if url else "")
+    wt = x_weight(post["text"] + "\n" + HASHTAGS) + (1 + 23 if url else 0)   # URLは、Xでは23文字として数える
+    print(f"[文字数] {wt} / 280")
+    if wt > 280:
+        print("::warning::投稿文がXの文字数(280)を超えています。投稿画面で、文章を短くしてください")
     intent = "https://x.com/intent/tweet?text=" + urllib.parse.quote(text, safe="")
     print("---- 投稿文 ----")
     print(text)
