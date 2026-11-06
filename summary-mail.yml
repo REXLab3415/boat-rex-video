@@ -1,0 +1,93 @@
+name: 5帯の集計をメールで送る
+
+# 非公開側が summary/日付.json を送ってくると、自動で動き、メールで知らせる(全買い目を1点100円ずつの集計)。
+# 手動でも動く(試験・送り直し)。動画・YouTube投稿には関係しない。
+# 送った日は uploaded/日付_summary_mail.json に記録し、同じ日は2通送らない。
+on:
+  push:
+    paths:
+      - "summary/*.json"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日付(YYYY-MM-DD。例 2026-11-04)。空欄なら、summary の中の、いちばん新しい日"
+        required: false
+        default: ""
+      dry:
+        description: "送らずに、本文を実行の記録に出すだけ"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "送信済みの日でも、もう一度送る"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: summary-mail
+  cancel-in-progress: false
+
+jobs:
+  mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 送る日を決める
+        id: d
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date }}
+        run: |
+          D=""
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-04 のように入力してください(入力: $DATE_INPUT)"
+              exit 1
+            fi
+            D="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # 今回の送信で変わったファイルのうち、いちばん新しい日(まとめて送られたときは、最新の1日だけメールする)
+            D="$(git diff --name-only HEAD~1 HEAD -- 'summary/*.json' | sed -n 's#^summary/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"
+          fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+
+      - name: メールを送る
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          DRY: ${{ github.event.inputs.dry }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          EXTRA=""
+          if [ "$DRY" = "true" ]; then EXTRA="--dry-run"; fi
+          if [ "$FORCE" = "true" ]; then EXTRA="$EXTRA --force"; fi
+          python summary_mail.py --date "$DATE_ARG" $EXTRA
+
+      - name: 送った記録を保存(同じ日を2通送らない)
+        if: ${{ github.event.inputs.dry != 'true' }}
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "集計メールの記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::記録を保存できませんでした"
+            exit 1
+          fi
