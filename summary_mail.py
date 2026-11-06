@@ -104,7 +104,7 @@ def build(date):
     n_races = sum(x["races_checked"] for x in days)
     span = f"{fmt_date(days[0]['date'])}〜{fmt_date(days[-1]['date'])}の{len(days)}日分・{n_races}レース" if days else ""
     subject = f"【BOAT REX PRO】{fmt_date(date)} 5帯の集計(全買い目100円ずつ)"
-    head = f"全買い目を1点100円ずつ購入した場合の集計です。対象: {d.get('scope','')}・{d['races_checked']}レース(答え合わせできなかった{d['races_excluded']}レースは除く)。"
+    head = f"解析ツールで1コース先マイを選択し解析し、全買い目を1点100円ずつ購入した場合の集計です。対象: {d.get('scope','')}・{d['races_checked']}レース(答え合わせできなかった{d['races_excluded']}レースは除く)。"
     post = build_post(date, d)
     intent = "https://x.com/intent/tweet?text=" + urllib.parse.quote(post, safe="")
     print(f"[文字数] {x_weight(post)} / 280")
