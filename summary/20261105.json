@@ -1,0 +1,54 @@
+{
+ "date": "20261105",
+ "scope": "全場",
+ "unit": 100,
+ "races_checked": 141,
+ "races_excluded": 3,
+ "bands": [
+  {
+   "key": "prob",
+   "label": "確率(高)",
+   "points": 1128,
+   "stake": 112800,
+   "payout": 68370,
+   "hit_races": 59,
+   "roi": 60.6
+  },
+  {
+   "key": "hm",
+   "label": "確率(高)～(中)",
+   "points": 2538,
+   "stake": 253800,
+   "payout": 172240,
+   "hit_races": 93,
+   "roi": 67.9
+  },
+  {
+   "key": "bal",
+   "label": "確率(中)",
+   "points": 1692,
+   "stake": 169200,
+   "payout": 114210,
+   "hit_races": 40,
+   "roi": 67.5
+  },
+  {
+   "key": "ml",
+   "label": "確率(中)～(低)",
+   "points": 2538,
+   "stake": 253800,
+   "payout": 158960,
+   "hit_races": 24,
+   "roi": 62.6
+  },
+  {
+   "key": "ev",
+   "label": "確率(低)",
+   "points": 2820,
+   "stake": 282000,
+   "payout": 173310,
+   "hit_races": 29,
+   "roi": 61.5
+  }
+ ]
+}
