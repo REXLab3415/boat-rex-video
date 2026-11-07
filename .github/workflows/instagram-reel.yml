@@ -1,8 +1,9 @@
-name: Instagramのリールに投稿(手動・接続の確認と、投稿の送り直し用)
+name: Instagramに投稿(リールと画像。手動・接続の確認と、投稿の送り直し用)
 
 # 毎日の自動投稿は、video.yml の中の手順が行う。これは、手動用。
 #   check = Instagramに接続できるかを確認するだけ(投稿しない)
-#   post  = すでにできているショート(Artifacts・30日以内)を、Xと同じ投稿文でリールに投稿する
+#   post  = すでにできているショート(Artifacts・30日以内)を、Xと同じ投稿文でリールに投稿し、続けて、その日のサムネイル画像(ここで作り直す)も同じ投稿文で投稿する
+#           投稿済みの部分(リール・画像それぞれ)は、forceにチェックがなければ飛ばす
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +18,7 @@ on:
         required: false
         default: ""
       force:
-        description: "投稿済みの日でも、もう一度投稿する"
+        description: "投稿済みの日でも、もう一度投稿する(リールも画像も)"
         required: false
         type: boolean
         default: false
@@ -70,7 +71,19 @@ jobs:
           gh run download "$RUN_ID" -n "boat-short-$DATE_ARG" -D out
           ls -la out
 
-      - name: Instagramのリールに投稿する
+      - name: サムネイル画像を作り直す(失敗しても、リールの投稿は続ける)
+        if: github.event.inputs.mode == 'post'
+        continue-on-error: true
+        env:
+          DATE_ARG: ${{ steps.s.outputs.date }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          pip install playwright
+          playwright install --with-deps chromium
+          python make_thumbnail.py --date "$DATE_ARG" --out out
+
+      - name: Instagramのリールと画像に投稿する
         if: github.event.inputs.mode == 'post'
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
