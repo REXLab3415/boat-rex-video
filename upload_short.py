@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """out/ にできたショート動画(short_日付.mp4)を、YouTubeに投稿する。
-  - 公開の設定は youtube_privacy.txt の1語(横動画と同じファイルを読む)。
+  - 公開の設定は youtube_privacy.txt の1語(横動画と同じファイルを読む。夜に動いたときの朝6:00予約公開も、横動画と同じ決まり)。
   - 同じ日をすでに投稿していたら(uploaded/日付_short.json がある)、飛ばす。--force で上げ直す。
   - 鍵は環境変数 YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN(横動画と同じ)。
   - 投稿の部品は、upload_youtube.py のものをそのまま使う(横動画の動きは変えない)。
@@ -67,12 +67,17 @@ def main():
         return 1
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
+    send_privacy, publish_at, plan_txt = U.plan_status(privacy)
+    status = {"privacyStatus": send_privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True}
+    if publish_at:
+        status["publishAt"] = publish_at
     body = {
         "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "17",
                     "defaultLanguage": "ja", "defaultAudioLanguage": "ja"},
-        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True},
+        "status": status,
     }
-    print(f"[short upload] {os.path.basename(mp4)} ({os.path.getsize(mp4) / 1e6:.1f} MB) 公開設定={privacy}\n[short upload] タイトル: {title}", flush=True)
+    plan_label = f"予約公開 {plan_txt}" if publish_at else f"すぐ{send_privacy}"
+    print(f"[short upload] {os.path.basename(mp4)} ({os.path.getsize(mp4) / 1e6:.1f} MB) 公開設定={privacy} → {plan_label}\n[short upload] タイトル: {title}", flush=True)
     try:
         resp = U.do_upload(youtube, mp4, body)
     except HttpError as e:
@@ -81,15 +86,18 @@ def main():
 
     vid = resp["id"]
     got = resp.get("status", {}).get("privacyStatus", "?")
-    print(f"[short done] 投稿できました: https://youtu.be/{vid} (指定 {privacy} / 返ってきた設定 {got})")
+    got_at = resp.get("status", {}).get("publishAt")
+    print(f"[short done] 投稿できました: https://youtu.be/{vid} (指定 {plan_label} / 返ってきた設定 {got} {got_at or ''})")
+    if publish_at and not got_at:
+        print("::warning::予約公開を指定しましたが、YouTubeから返ってきた情報に公開予定の日時がありません。YouTube Studioで、このショートに公開予定の日時が付いているか確認してください")
     os.makedirs(os.path.dirname(rec), exist_ok=True)
     with open(rec, "w", encoding="utf-8") as f:
-        json.dump({"videoId": vid, "privacy": privacy, "title": title,
+        json.dump({"videoId": vid, "privacy": privacy, "publishAt": publish_at, "title": title,
                    "at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC"}, f, ensure_ascii=False, indent=1)
     sp = os.environ.get("GITHUB_STEP_SUMMARY")
     if sp:
         with open(sp, "a", encoding="utf-8") as f:
-            f.write(f"### ショートをYouTubeに投稿しました({date})\n指定した公開設定: {privacy}\n\n"
+            f.write(f"### ショートをYouTubeに投稿しました({date})\n指定した公開設定: {privacy}({plan_label})\n\n"
                     f"- 動画: https://youtu.be/{vid}\n- 管理画面(公開設定を確認): https://studio.youtube.com/video/{vid}/edit\n")
     return 0
 

@@ -1,14 +1,41 @@
 #!/usr/bin/env python3
 """out/ にできた動画を、YouTubeに投稿する。
-  - 公開の設定は youtube_privacy.txt の1語(public / unlisted / private)。
+  - 公開の設定は youtube_privacy.txt の1語(public / public_now / unlisted / private)。
+      public     = 夜(日本時間20:00〜翌6:00)に動いたときは、その朝6:00に公開する予約つきで上げる。昼に動いたときは、すぐ公開
+      public_now = 予約せず、いつでもすぐ公開
   - 同じ日をすでに投稿していたら(uploaded/日付.json がある)、飛ばす。--force で上げ直す。
   - 鍵は環境変数 YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN(GitHubのシークレット)。
 """
 import argparse, glob, json, os, random, re, sys, time
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-PRIVACY_OK = ("public", "unlisted", "private")
+PRIVACY_OK = ("public", "public_now", "unlisted", "private")
+JST = timezone(timedelta(hours=9))
+PUBLISH_HOUR_JST = 6      # 公開する時刻(日本時間の朝6:00)
+SCHEDULE_FROM_HOUR_JST = 20  # 日本時間のこの時刻以降〜翌6:00に動いたときだけ、予約にする
+MIN_LEAD_MIN = 15         # 6:00まで、これより短いときは、予約せず、すぐ公開
+
+
+def plan_status(privacy, now=None):
+    """(YouTubeに渡す公開設定, 公開予定のUTC時刻の文字列 or None, 公開予定の日本時間の表示 or None) を返す。
+    now は試験用(省略すると、いまの時刻)。"""
+    if privacy == "public_now":
+        return "public", None, None
+    if privacy != "public":
+        return privacy, None, None
+    now_j = (now or datetime.now(timezone.utc)).astimezone(JST)
+    target = now_j.replace(hour=PUBLISH_HOUR_JST, minute=0, second=0, microsecond=0)
+    if now_j.hour >= SCHEDULE_FROM_HOUR_JST:
+        target += timedelta(days=1)          # 夜(20:00〜24:00)→ 翌日の6:00
+    elif now_j.hour >= PUBLISH_HOUR_JST:
+        return "public", None, None          # 昼(6:00〜20:00)→ すぐ公開
+    # 0:00〜6:00 → その日の6:00
+    if target - now_j < timedelta(minutes=MIN_LEAD_MIN):
+        return "public", None, None          # 6:00まで15分を切っている → すぐ公開
+    at_utc = target.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return "private", at_utc, target.strftime("%Y-%m-%d %H:%M") + "(日本時間)"
 
 
 def read_privacy():
@@ -121,12 +148,17 @@ def main():
         return 1
     youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
+    send_privacy, publish_at, plan_txt = plan_status(privacy)
+    status = {"privacyStatus": send_privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True}
+    if publish_at:
+        status["publishAt"] = publish_at
     body = {
         "snippet": {"title": title, "description": desc, "tags": tags, "categoryId": "17",
                     "defaultLanguage": "ja", "defaultAudioLanguage": "ja"},
-        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False, "containsSyntheticMedia": True},
+        "status": status,
     }
-    print(f"[upload] {os.path.basename(mp4)} ({os.path.getsize(mp4) / 1e6:.1f} MB) 公開設定={privacy}\n[upload] タイトル: {title}", flush=True)
+    plan_label = f"予約公開 {plan_txt}" if publish_at else f"すぐ{send_privacy}"
+    print(f"[upload] {os.path.basename(mp4)} ({os.path.getsize(mp4) / 1e6:.1f} MB) 公開設定={privacy} → {plan_label}\n[upload] タイトル: {title}", flush=True)
     try:
         resp = do_upload(youtube, mp4, body)
     except HttpError as e:
@@ -135,7 +167,10 @@ def main():
 
     vid = resp["id"]
     got = resp.get("status", {}).get("privacyStatus", "?")
-    print(f"[done] 投稿できました: https://youtu.be/{vid} (指定 {privacy} / 返ってきた設定 {got})")
+    got_at = resp.get("status", {}).get("publishAt")
+    print(f"[done] 投稿できました: https://youtu.be/{vid} (指定 {plan_label} / 返ってきた設定 {got} {got_at or ''})")
+    if publish_at and not got_at:
+        print("::warning::予約公開を指定しましたが、YouTubeから返ってきた情報に公開予定の日時がありません。YouTube Studioで、この動画に公開予定の日時が付いているか確認してください")
     thumb = os.path.join(args.out, f"thumbnail_{date}.jpg")
     thumb_note = "サムネイル: 作っていないので、付けていません"
     if os.path.exists(thumb):
@@ -149,12 +184,12 @@ def main():
             print(f"::warning::サムネイルを付けられませんでした(動画の投稿は成功しています): {e.resp.status} {e.content.decode('utf-8', errors='ignore')[:300]}")
     os.makedirs(os.path.dirname(rec), exist_ok=True)
     with open(rec, "w", encoding="utf-8") as f:
-        json.dump({"videoId": vid, "privacy": privacy, "title": title,
+        json.dump({"videoId": vid, "privacy": privacy, "publishAt": publish_at, "title": title,
                    "at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC"}, f, ensure_ascii=False, indent=1)
     sp = os.environ.get("GITHUB_STEP_SUMMARY")
     if sp:
         with open(sp, "a", encoding="utf-8") as f:
-            f.write(f"### YouTubeに投稿しました({date})\n指定した公開設定: {privacy}\n\n"
+            f.write(f"### YouTubeに投稿しました({date})\n指定した公開設定: {privacy}({plan_label})\n\n"
                     f"- 動画: https://youtu.be/{vid}\n- 管理画面(公開設定を確認): https://studio.youtube.com/video/{vid}/edit\n- {thumb_note}\n")
     return 0
 
