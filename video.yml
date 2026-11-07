@@ -1,0 +1,238 @@
+name: 答え合わせ動画(本番)
+
+# 非公開側(boat-scenario-pro)の全レース検証が、結果を保存すると、days/日付.json を、この公開リポジトリに送ってくる。
+# それをきっかけに、自動で動画を作る。手動で「Run workflow」を押しても動く。
+# できるもの: 動画(mp4)・概要欄の文章(description.txt。場ごとのチャプターつき)。
+#   実行ページの下の Artifacts からダウンロードする(30日で消える)。
+# 動画ができたら、YouTubeに自動で投稿する(公開の設定は youtube_privacy.txt の1語。音声なし(dummy)のときは投稿しない)。
+on:
+  push:
+    paths:
+      - "days/*.json"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "動画にする日(YYYY-MM-DD。例 2026-11-02)。空欄なら、days の中の、いちばん新しい日"
+        required: false
+        default: ""
+      voice:
+        description: "voicevox=本番の声(青山龍星) / dummy=音声なしの映像確認用(早い)"
+        required: true
+        type: choice
+        options: [voicevox, dummy]
+        default: voicevox
+      force:
+        description: "同じ日をもう一度YouTubeに上げる(投稿済みの日でも上げ直す)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: allrace-video
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 動画にする日を決める
+        id: d
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date }}
+        run: |
+          DATE_ARG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "$DATE_INPUT" ]; then
+              if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+                echo "::error::日付の形式が正しくありません。2026-11-02 のように入力してください(入力: $DATE_INPUT)"
+                exit 1
+              fi
+              DATE_ARG="$(date -d "$DATE_INPUT" +%Y%m%d)"
+            fi
+          else
+            # 送られてきたファイル(今回の更新で変わった days/日付.json)の、いちばん新しい日
+            DATE_ARG="$(git diff-tree --no-commit-id --name-only -r HEAD -- days | sed -n 's#^days/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"
+          fi
+          echo "date=$DATE_ARG" >> "$GITHUB_OUTPUT"
+          echo "動画にする日: ${DATE_ARG:-(いちばん新しい日)}"
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(ffmpeg・日本語フォント・Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          pip install playwright numpy
+          playwright install --with-deps chromium
+
+      - name: VOICEVOXエンジンを起動(Docker)
+        if: github.event.inputs.voice != 'dummy'
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then echo "VOICEVOX ready"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::VOICEVOXエンジンが起動しませんでした"
+          docker logs voicevox || true
+          exit 1
+
+      - name: 動画を作る
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+        run: |
+          python build_allrace_video.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
+
+      - name: 動画を保存(Actionsの画面の下の Artifacts からダウンロード)
+        uses: actions/upload-artifact@v4
+        with:
+          name: boat-allrace-video-${{ steps.d.outputs.date || 'latest' }}
+          path: |
+            out/*.mp4
+            out/description.txt
+            out/youtube_meta.json
+            out/timeline.json
+            out/thumbnail_*.jpg
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: サムネイルを作る(失敗しても、投稿は続ける)
+        if: github.event.inputs.voice != 'dummy'
+        continue-on-error: true
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+        run: |
+          python make_thumbnail.py --date "$DATE_ARG" --out out
+
+      - name: YouTubeに投稿する
+        if: github.event.inputs.voice != 'dummy'
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_youtube.py --date "$DATE_ARG" --out out $EXTRA
+
+      # ---- ここから ショート(1日1本)。失敗しても、横動画は成功のまま残る。失敗は、この手順に赤い印と文で出る ----
+      - name: ショートを作る(失敗しても、横動画は成功のまま)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+        run: |
+          python build_short.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
+
+      - name: ショートを保存(Actionsの画面の下の Artifacts からダウンロード)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: boat-short-${{ steps.d.outputs.date || 'latest' }}
+          path: |
+            out/short_*.mp4
+            out/short_meta.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: ショートをYouTubeに投稿する(失敗しても、横動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_short.py --date "$DATE_ARG" --out out $EXTRA
+
+      # ---- Xの投稿文を作って、メールで送る(失敗しても、動画は成功のまま)。ツールの的中が0件の日は送らない ----
+      - name: Xの投稿文をメールで送る(失敗しても、動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python x_post_mail.py --date "$DATE_ARG" $EXTRA
+      # ---- ここまで ----
+      # ---- ショートを、Xと同じ投稿文で、Instagramのリールに自動投稿(失敗しても、動画は成功のまま)。ツールの的中が0件の日は投稿しない ----
+      # 夜(日本時間20:00〜翌5:00)に動いたときは、ここでは投稿しない。朝5:07に自動で動く instagram-reel.yml が、6:00に投稿する。
+      - name: ショートをInstagramのリールに投稿する(失敗しても、動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          H=$((10#$(TZ=Asia/Tokyo date +%H)))
+          if [ "$H" -ge 20 ] || [ "$H" -lt 5 ]; then
+            echo "::notice::夜のあいだは、Instagramには投稿しません。朝5:07に自動で動く「Instagramに投稿」が、6:00に投稿します"
+            exit 0
+          fi
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python instagram_reel.py --date "$DATE_ARG" --out out $EXTRA
+
+      - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)
+        if: github.event.inputs.voice != 'dummy'
+        continue-on-error: true
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "YouTube投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
+
+      - name: ショートの投稿の記録を保存(横動画が失敗した日の保険。同じ日の二重投稿を防ぐ)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "YouTubeショート投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::ショートの投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
