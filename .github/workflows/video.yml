@@ -182,6 +182,20 @@ jobs:
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python x_post_mail.py --date "$DATE_ARG" $EXTRA
       # ---- ここまで ----
+      # ---- ショートを、Xと同じ投稿文で、Instagramのリールに自動投稿(失敗しても、動画は成功のまま)。ツールの的中が0件の日は投稿しない ----
+      - name: ショートをInstagramのリールに投稿する(失敗しても、動画は成功のまま)
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python instagram_reel.py --date "$DATE_ARG" --out out $EXTRA
 
       - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)
         if: github.event.inputs.voice != 'dummy'

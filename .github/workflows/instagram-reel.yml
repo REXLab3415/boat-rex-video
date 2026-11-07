@@ -1,0 +1,100 @@
+name: Instagramのリールに投稿(手動・接続の確認と、投稿の送り直し用)
+
+# 毎日の自動投稿は、video.yml の中の手順が行う。これは、手動用。
+#   check = Instagramに接続できるかを確認するだけ(投稿しない)
+#   post  = すでにできているショート(Artifacts・30日以内)を、Xと同じ投稿文でリールに投稿する
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check=接続の確認だけ(投稿しない) / post=リールに投稿する"
+        required: true
+        type: choice
+        options: [check, post]
+        default: check
+      date:
+        description: "投稿する日(YYYY-MM-DD。例 2026-11-05)。空欄なら、days の中の、いちばん新しい日(postのとき)"
+        required: false
+        default: ""
+      force:
+        description: "投稿済みの日でも、もう一度投稿する"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  reel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 接続の確認だけ(投稿しない)
+        if: github.event.inputs.mode == 'check'
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+        run: python instagram_reel.py --check
+
+      - name: できているショートを取り出す
+        if: github.event.inputs.mode == 'post'
+        id: s
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE_INPUT: ${{ github.event.inputs.date }}
+        run: |
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-05 のように入力してください(入力: $DATE_INPUT)"
+              exit 1
+            fi
+            DATE_ARG="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          else
+            DATE_ARG="$(ls days/*.json | sed -n 's#^days/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"
+          fi
+          echo "date=$DATE_ARG" >> "$GITHUB_OUTPUT"
+          echo "投稿する日: $DATE_ARG"
+          RUN_ID="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=boat-short-$DATE_ARG&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | .[0].workflow_run.id')"
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "::error::boat-short-$DATE_ARG のショート(Artifacts)が見つかりません(作ってから30日で消えます)"
+            exit 1
+          fi
+          gh run download "$RUN_ID" -n "boat-short-$DATE_ARG" -D out
+          ls -la out
+
+      - name: Instagramのリールに投稿する
+        if: github.event.inputs.mode == 'post'
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE_ARG: ${{ steps.s.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python instagram_reel.py --date "$DATE_ARG" --out out $EXTRA
+
+      - name: 投稿の記録を保存(同じ日の二重投稿を防ぐ)
+        if: github.event.inputs.mode == 'post'
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "Instagram投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
