@@ -183,6 +183,7 @@ jobs:
           python x_post_mail.py --date "$DATE_ARG" $EXTRA
       # ---- ここまで ----
       # ---- ショートを、Xと同じ投稿文で、Instagramのリールに自動投稿(失敗しても、動画は成功のまま)。ツールの的中が0件の日は投稿しない ----
+      # 夜(日本時間20:00〜翌5:00)に動いたときは、ここでは投稿しない。朝5:07に自動で動く instagram-reel.yml が、6:00に投稿する。
       - name: ショートをInstagramのリールに投稿する(失敗しても、動画は成功のまま)
         if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
         continue-on-error: true
@@ -193,6 +194,11 @@ jobs:
           DATE_ARG: ${{ steps.d.outputs.date }}
           FORCE: ${{ github.event.inputs.force }}
         run: |
+          H=$((10#$(TZ=Asia/Tokyo date +%H)))
+          if [ "$H" -ge 20 ] || [ "$H" -lt 5 ]; then
+            echo "::notice::夜のあいだは、Instagramには投稿しません。朝5:07に自動で動く「Instagramに投稿」が、6:00に投稿します"
+            exit 0
+          fi
           EXTRA=""
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python instagram_reel.py --date "$DATE_ARG" --out out $EXTRA
