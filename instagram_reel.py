@@ -157,7 +157,7 @@ def main():
             return 1
         try:
             uid, name = find_account(token)
-            info = api("GET", uid, {"fields": "username,account_type,media_count"}, token)
+            info = api("GET", uid, {"fields": "username"}, token)
         except ApiError as e:
             print(f"::error title=Instagramに接続できません::{e}")
             return 1
