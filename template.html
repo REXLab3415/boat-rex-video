@@ -161,7 +161,7 @@ let VH = 703, GH = 432;
   $('#sg').innerHTML = one+one+one;
   $('#brand').textContent = D.brand;
   $('#hmeta').textContent = D.dateLabel+'　全'+D.nvenues+'場';
-  $('#strat').innerHTML = `ツールの攻め筋：<b>1コース</b>の<b>「${D.move1}」</b>を選択しています`;
+  $('#strat').innerHTML = `直前情報を読み込み、展示の並びを採用。ツールの攻め筋：<b>1コース</b>の<b>「${D.move1}」</b>を選択しています`;
   $('#tk').innerHTML = (()=>{ const o = D.ticker.map(s=>`<span class="it">${s}</span>`).join(''); return o+o+o; })();
 })();
 
