@@ -7,6 +7,7 @@ import datetime
 import json
 import os
 import shutil
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(HERE, "assets")
@@ -15,10 +16,10 @@ FILES = ["caster_base.png", "mouth_closed.png", "mouth_a.png", "mouth_i.png", "m
 
 CASTERS = [
     {"id": "c0", "dir": None, "voice": "青山龍星", "styles": ["ノーマル"], "any_style": True, "credit": "青山龍星"},
-    {"id": "c1", "dir": "casters/c1", "voice": "雀松朱司", "styles": ["ノーマル"], "any_style": True, "credit": "雀松朱司"},
-    {"id": "c2", "dir": "casters/c2", "voice": "後鬼", "styles": ["鬼ver.", "鬼ver"], "style_contains": "鬼",
+    {"id": "c1", "dir": "flat", "voice": "雀松朱司", "styles": ["ノーマル"], "any_style": True, "credit": "雀松朱司"},
+    {"id": "c2", "dir": "flat", "voice": "後鬼", "styles": ["鬼ver.", "鬼ver"], "style_contains": "鬼",
      "any_style": False, "credit": "後鬼"},
-    {"id": "c3", "dir": "casters/c3", "voice": "WhiteCUL", "styles": ["たのしい"], "any_style": False, "credit": "WhiteCUL"},
+    {"id": "c3", "dir": "flat", "voice": "WhiteCUL", "styles": ["たのしい"], "any_style": False, "credit": "WhiteCUL"},
 ]
 
 
@@ -63,7 +64,15 @@ def find_style_id(speakers, caster):
 
 
 def asset_dir(caster):
-    return ASSETS if not caster["dir"] else os.path.join(ASSETS, caster["dir"])
+    """キャスターの画像が入ったフォルダ。新3人の画像は、リポジトリの一番上に「c1_caster_base.png」のような名前で
+    置いてあるため、標準の名前(caster_base.png ほか)に直した一時フォルダを作って返す。"""
+    if not caster["dir"]:
+        return ASSETS
+    d = os.path.join(tempfile.gettempdir(), "caster_" + caster["id"])
+    os.makedirs(d, exist_ok=True)
+    for fn in FILES + ["caster.json"]:
+        shutil.copyfile(os.path.join(HERE, f"{caster['id']}_{fn}"), os.path.join(d, fn))
+    return d
 
 
 def caster_json(caster):
