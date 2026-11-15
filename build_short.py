@@ -20,6 +20,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_video as V  # noqa: E402  (声・口パク)
 import build_allrace_video as A  # noqa: E402  (日付・データの読み込み)
+import casters  # noqa: E402  (キャスター4人のローテーション)
+
+CREDIT_NAME = "青山龍星"      # 概要欄のクレジット(その日の声の名前。main で入れ替える)
 import numpy as np  # noqa: E402
 
 W, H = 1080, 1920
@@ -180,7 +183,7 @@ def build_meta(date, day, top, bands, hit_keys):
     lines += [f"{m}/{d}のボートレース、{top['venue']}{top['no']}Rの3連単{top['win']}。"
               f"ボートレース解析ツール「BOAT REX PRO」の買い目で答え合わせ。{verdict}",
               f"公式サイト: {SITE_URL}", "",
-              "■クレジット", "VOICEVOX:青山龍星", "",
+              "■クレジット", f"VOICEVOX:{CREDIT_NAME}", "",
               "#Shorts #ボートレース #競艇 #3連単"]
     tags = list(BASE_TAGS)
     if top["venue"] not in tags:
@@ -208,7 +211,10 @@ def main():
         day = A.load_day(date)
         top, bands = pick_top(day)
         os.makedirs(args.out, exist_ok=True)
-        voice = V.Voice(args.voice, args.voicevox_url)
+        voice = V.Voice(args.voice, args.voicevox_url, date=date)
+        global CREDIT_NAME
+        CREDIT_NAME = voice.caster["credit"]
+        print(f"[caster] 今日のキャスター={voice.caster['id']}(声: {voice.caster['voice']})")
         total = None
         for compact in (False, True):
             beats, hit_keys, all_venues = build_beats(date, day, top, bands, compact)
@@ -233,10 +239,10 @@ def main():
                        else ["答え合わせは", "チャンネルの最新動画で"]),
             "beats": beats,
         }
-        with open(os.path.join(HERE, "assets", "caster.json"), encoding="utf-8") as f:
-            data["caster"] = json.load(f)
+        data["caster"] = casters.caster_json(voice.caster)
         import shutil
         shutil.copytree(os.path.join(HERE, "assets"), os.path.join(args.out, "assets"), dirs_exist_ok=True)
+        casters.apply_assets(voice.caster, os.path.join(args.out, "assets"))
         with open(os.path.join(HERE, "short_template.html"), encoding="utf-8") as f:
             html = f.read().replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
         html_path = os.path.join(args.out, "short_scene.html")

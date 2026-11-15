@@ -20,6 +20,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_video as V  # noqa: E402  (声・口パク・撮影の部品)
+import casters  # noqa: E402  (キャスター4人のローテーション)
+
+CREDIT_NAME = "青山龍星"      # 概要欄のクレジット(その日の声の名前。main で入れ替える)
 import numpy as np  # noqa: E402
 
 BANDS = [("prob", "確率(高)"), ("hm", "確率(高)〜(中)"), ("bal", "確率(中)"), ("ml", "確率(中)〜(低)"), ("ev", "確率(低)")]
@@ -92,7 +95,7 @@ def build_youtube_meta(date, day, races, beats, total, partial=False):
     lines += ["■ボートレース解析ツール BOAT REX PRO",
               "レースの展開を解析し、買い目を出すボートレース解析ツールです。この動画では、その買い目を実際の結果と照らし合わせています。",
               f"公式サイト: {SITE_URL}", "",
-              "■クレジット", "VOICEVOX:青山龍星", "",
+              "■クレジット", f"VOICEVOX:{CREDIT_NAME}", "",
               "#ボートレース #競艇 #3連単"]
     tags = list(BASE_TAGS)
     for v in venues:
@@ -245,6 +248,7 @@ def assemble(beats, voice, last_tail=1.4):
 
 
 def main():
+    global CREDIT_NAME
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default="", help="例 20261102。空欄なら、保存のある、いちばん新しい日")
     ap.add_argument("--voice", choices=["voicevox", "dummy"], default="voicevox")
@@ -280,7 +284,11 @@ def main():
     print(f"[data] {date} {'・'.join(venues)} races={len(races)} 的中あり={nhit} 的中なし={len(races) - nhit} お伝えできないレース={nfails}")
 
     beats = build_script(date, day, args.brand_reading)
-    voice = V.Voice(args.voice, args.voicevox_url)
+    voice = V.Voice(args.voice, args.voicevox_url, date=date)
+    caster = voice.caster
+    CREDIT_NAME = caster["credit"]
+    casters.write_used(args.out, caster, date)
+    print(f"[caster] 今日のキャスター={caster['id']}(声: {caster['voice']})")
     total, master, sr = assemble(beats, voice)
     cnt = collections.Counter(b["lipsync"] for b in beats)
     label = {"mora": "通常(VOICEVOXの計画表)", "audio": "音量の波形(保険)", "none": "動かない(無音)"}
@@ -291,7 +299,7 @@ def main():
     sp = os.environ.get("GITHUB_STEP_SUMMARY")
     if sp:
         with open(sp, "a", encoding="utf-8") as f:
-            f.write(f"### {date} の動画\n全{len(races)}レース(的中あり {nhit} / 的中なし {len(races) - nhit})・長さ {total / 60:.1f}分\n\n{summary}\n")
+            f.write(f"### {date} の動画\nキャスター {caster['id']}(声: {caster['voice']})\n全{len(races)}レース(的中あり {nhit} / 的中なし {len(races) - nhit})・長さ {total / 60:.1f}分\n\n{summary}\n")
     audio_path = os.path.join(args.out, "narration.wav")
     V.write_wav(audio_path, master, sr)
 
@@ -301,13 +309,13 @@ def main():
         "bands": day["bands"],
         "ticker": [f"{r['venue']} {r['no']}R <b>{r['win']}</b> ¥{r['pay']:,}" for r in races],
     }
-    with open(os.path.join(HERE, "assets", "caster.json"), encoding="utf-8") as f:
-        data["caster"] = json.load(f)
+    data["caster"] = casters.caster_json(caster)
     with open(os.path.join(HERE, "assets", "layout.json"), encoding="utf-8") as f:
         data["layout"] = json.load(f)
     with open(os.path.join(HERE, "signboard.txt"), encoding="utf-8") as f:
         data["sign"] = [ln.strip() for ln in f if ln.strip()]
     shutil.copytree(os.path.join(HERE, "assets"), os.path.join(args.out, "assets"), dirs_exist_ok=True)
+    casters.apply_assets(caster, os.path.join(args.out, "assets"))
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:
         html = f.read().replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
     html_path = os.path.join(args.out, "scene.html")

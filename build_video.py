@@ -28,6 +28,8 @@ import wave
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import casters  # noqa: E402  (キャスター4人のローテーション)
 SPEAKER_NAME = "青山龍星"
 LEAD = 0.35          # ビート開始から音声開始までの間
 TAIL = 0.7           # 音声終了からビート終了までの間
@@ -119,10 +121,11 @@ def choose_races(by, races_arg):
 
 # ------------------------------------------------------------------ voice
 class Voice:
-    def __init__(self, mode, url, audible=False, bad_query=False):
+    def __init__(self, mode, url, audible=False, bad_query=False, date=None):
         self.mode, self.url = mode, url.rstrip("/")
         self.audible, self.bad_query = audible, bad_query      # 動作確認用の仮の設定(通常は使わない)
         self.speaker = None
+        self.caster = casters.pick_for_date(date)              # 日付で決まるキャスター(声が見つからなければ現行に戻る)
         if mode == "voicevox":
             self.speaker = self._resolve_speaker()
             print(f"[voice] VOICEVOX speaker id = {self.speaker}")
@@ -177,14 +180,21 @@ class Voice:
 
     def _resolve_speaker(self):
         sp = self._get("/speakers")
-        for s in sp:
-            if s["name"] == SPEAKER_NAME:
-                for st in s["styles"]:
-                    if st["name"] == "ノーマル":
-                        return st["id"]
-                return s["styles"][0]["id"]
-        names = [s["name"] for s in sp]
-        sys.exit(f"話者 {SPEAKER_NAME} が見つかりません。利用可能: {names}")
+        sid = casters.find_style_id(sp, self.caster)
+        if sid is None and self.caster["id"] != "c0" and os.environ.get("CASTER_STRICT") == "1":
+            have = [f"{s['name']}({'/'.join(st['name'] for st in s['styles'])})" for s in sp]
+            sys.exit(f"[テスト] 声 {self.caster['voice']}({'/'.join(self.caster['styles'])})が見つかりません。利用可能: {have}")
+        if sid is None and self.caster["id"] != "c0":
+            have = [f"{s['name']}({'/'.join(st['name'] for st in s['styles'])})" for s in sp]
+            print(f"::warning title=声が見つかりません::{self.caster['voice']}({'/'.join(self.caster['styles'])})が見つからないため、"
+                  f"今日は今までのキャスター({casters.CASTERS[0]['voice']})で作ります。利用可能: {have}", flush=True)
+            self.caster = casters.CASTERS[0]
+            sid = casters.find_style_id(sp, self.caster)
+        if sid is None:
+            names = [s["name"] for s in sp]
+            sys.exit(f"話者 {self.caster['voice']} が見つかりません。利用可能: {names}")
+        print(f"[caster] {self.caster['id']} 声={self.caster['voice']}")
+        return sid
 
     def synth(self, text):
         """return (wav_bytes, query_dict)"""

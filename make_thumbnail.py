@@ -4,6 +4,7 @@
 作れなくても、動画の投稿は止めない(呼ぶ側で、失敗しても続ける)。
 """
 import argparse, glob, json, os, re, sys
+import casters
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIMIT = 1_900_000   # YouTubeの上限は2MB
@@ -26,6 +27,10 @@ def build(date, out):
     }
     with open(os.path.join(HERE, "thumbnail_template.html"), encoding="utf-8") as f:
         html = f.read()
+    caster = casters.read_used(out, date) or casters.pick_for_date(date)      # 同じ日の動画で使った人(なければ日付から)
+    cbase = os.path.join(casters.asset_dir(caster), "caster_base.png").replace(os.sep, "/")
+    html = html.replace("__ASSETS__/caster_base.png", "file://" + cbase)
+    print(f"[thumbnail] キャスター={caster['id']}")
     html = html.replace("__ASSETS__", "file://" + os.path.join(HERE, "assets").replace(os.sep, "/"))
     html = html.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
     os.makedirs(out, exist_ok=True)
