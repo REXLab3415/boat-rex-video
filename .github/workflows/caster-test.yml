@@ -1,0 +1,68 @@
+name: キャスター4人の確認(テスト)
+
+# 4人の声がVOICEVOXに入っているかを確かめ、4人それぞれで短い動画(最初の2レース・25秒まで)を作る。YouTubeには投稿しない。
+# 手動で「Run workflow」を押して使う。声が1人でも出せなければ、赤(失敗)になる。
+# 結果: 実行ページの「Summary」に声の一覧。動画は、実行ページの下の Artifacts の「caster-test」(7日で消える)。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: caster-test
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(ffmpeg・日本語フォント・Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          pip install playwright numpy
+          playwright install --with-deps chromium
+
+      - name: VOICEVOXエンジンを起動(Docker)
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then echo "VOICEVOX ready"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::VOICEVOXエンジンが起動しませんでした"
+          docker logs voicevox || true
+          exit 1
+
+      - name: 声の確認(4人)
+        run: python caster_voice_check.py
+
+      - name: 4人それぞれで短い動画を作る
+        env:
+          CASTER_STRICT: "1"
+        run: |
+          DATE="$(ls days/*.json | sed -n 's#^days/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"
+          echo "使う日: $DATE"
+          for C in c0 c1 c2 c3; do
+            echo "=== $C ==="
+            CASTER_FORCE=$C python build_allrace_video.py --date "$DATE" --voice voicevox --limit 2 --max-sec 25 --out "out_$C"
+          done
+
+      - name: 動画を保存(Actionsの画面の下の Artifacts からダウンロード)
+        uses: actions/upload-artifact@v4
+        with:
+          name: caster-test
+          path: |
+            out_c*/boat_check_*.mp4
+            out_c*/description.txt
+          retention-days: 7
