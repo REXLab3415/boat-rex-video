@@ -1,6 +1,6 @@
 name: キャスター4人の確認(テスト)
 
-# 4人の声がVOICEVOXに入っているかを確かめ、4人それぞれで短い動画(最初の2レース・25秒まで)を作る。YouTubeには投稿しない。
+# 4人の声がVOICEVOXに入っているかを確かめ、新しい3人それぞれで短い動画(最初の2レース・25秒まで)を作る。YouTubeには投稿しない。
 # 手動で「Run workflow」を押して使う。声が1人でも出せなければ、赤(失敗)になる。
 # 結果: 実行ページの「Summary」に声の一覧。動画は、実行ページの下の Artifacts の「caster-test」(7日で消える)。
 on:
@@ -47,13 +47,13 @@ jobs:
       - name: 声の確認(4人)
         run: python caster_voice_check.py
 
-      - name: 4人それぞれで短い動画を作る
+      - name: 新しい3人それぞれで短い動画を作る
         env:
           CASTER_STRICT: "1"
         run: |
           DATE="$(ls days/*.json | sed -n 's#^days/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"
           echo "使う日: $DATE"
-          for C in c0 c1 c2 c3; do
+          for C in c1 c2 c3; do
             echo "=== $C ==="
             CASTER_FORCE=$C python build_allrace_video.py --date "$DATE" --voice voicevox --limit 2 --max-sec 25 --out "out_$C"
           done
