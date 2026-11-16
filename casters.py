@@ -1,5 +1,5 @@
 """キャスター(顔・口・目の画像)と声(VOICEVOX)の組み合わせを、日付で4人ローテーションする部品。
-  c0 = 今までのキャスター(青山龍星) / c1 = 男性(雀松朱司) / c2 = 白い服の女性(後鬼 鬼ver) / c3 = 黒いスーツの女性(WhiteCUL たのしい)
+  c0 = 今までのキャスター(青山龍星) / c1 = 男性(雀松朱司) / c2 = 白い服の女性(後鬼 鬼ver) / c3 = 黒いスーツの女性(夜語トバリ)
   選ぶ日付 = 動画の日付(レースの日)。日付から自動で決まり、横動画・ショート・サムネは同じ日なら同じ人。
   声が見つからないときは、その日だけ c0(今までのキャスター・青山龍星)に自動で戻す。
 """
@@ -19,7 +19,7 @@ CASTERS = [
     {"id": "c1", "dir": "flat", "voice": "雀松朱司", "styles": ["ノーマル"], "any_style": True, "credit": "雀松朱司"},
     {"id": "c2", "dir": "flat", "voice": "後鬼", "styles": ["鬼ver.", "鬼ver"], "style_contains": "鬼",
      "any_style": False, "credit": "後鬼"},
-    {"id": "c3", "dir": "flat", "voice": "WhiteCUL", "styles": ["たのしい"], "any_style": False, "credit": "WhiteCUL"},
+    {"id": "c3", "dir": "flat", "voice": "夜語トバリ", "styles": ["ノーマル"], "any_style": True, "credit": "夜語トバリ"},
 ]
 
 
