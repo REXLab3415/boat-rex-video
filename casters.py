@@ -1,5 +1,6 @@
 """キャスター(顔・口・目の画像)と声(VOICEVOX)の組み合わせを、日付で4人ローテーションする部品。
-  c0 = 今までのキャスター(青山龍星) / c1 = 男性(雀松朱司) / c2 = 白い服の女性(後鬼 鬼ver) / c3 = 黒いスーツの女性(夜語トバリ)
+  c0 = 灰色の髪の男性・赤いネクタイ(青山龍星) / c1 = 若い男性(雀松朱司) / c2 = 白い服の女性(後鬼 鬼ver) / c3 = 黒いスーツの女性(夜語トバリ)
+  順番は 男(c0)→女(c2)→男(c1)→女(c3)。4人とも、画像は一番上の階層の「c0_…」「c1_…」のような名前のファイルを使う(assets の画像は使わない)。
   選ぶ日付 = 動画の日付(レースの日)。日付から自動で決まり、横動画・ショート・サムネは同じ日なら同じ人。
   声が見つからないときは、その日だけ c0(今までのキャスター・青山龍星)に自動で戻す。
 """
@@ -15,10 +16,10 @@ FILES = ["caster_base.png", "mouth_closed.png", "mouth_a.png", "mouth_i.png", "m
          "mouth_e.png", "mouth_o.png", "eyes_closed.png"]
 
 CASTERS = [
-    {"id": "c0", "dir": None, "voice": "青山龍星", "styles": ["ノーマル"], "any_style": True, "credit": "青山龍星"},
-    {"id": "c1", "dir": "flat", "voice": "雀松朱司", "styles": ["ノーマル"], "any_style": True, "credit": "雀松朱司"},
+    {"id": "c0", "dir": "flat", "voice": "青山龍星", "styles": ["ノーマル"], "any_style": True, "credit": "青山龍星"},
     {"id": "c2", "dir": "flat", "voice": "後鬼", "styles": ["鬼ver.", "鬼ver"], "style_contains": "鬼",
      "any_style": False, "credit": "後鬼"},
+    {"id": "c1", "dir": "flat", "voice": "雀松朱司", "styles": ["ノーマル"], "any_style": True, "credit": "雀松朱司"},
     {"id": "c3", "dir": "flat", "voice": "夜語トバリ", "styles": ["ノーマル"], "any_style": True, "credit": "夜語トバリ"},
 ]
 
@@ -64,7 +65,7 @@ def find_style_id(speakers, caster):
 
 
 def asset_dir(caster):
-    """キャスターの画像が入ったフォルダ。新3人の画像は、リポジトリの一番上に「c1_caster_base.png」のような名前で
+    """キャスターの画像が入ったフォルダ。4人とも、画像はリポジトリの一番上に「c0_caster_base.png」のような名前で
     置いてあるため、標準の名前(caster_base.png ほか)に直した一時フォルダを作って返す。"""
     if not caster["dir"]:
         return ASSETS
