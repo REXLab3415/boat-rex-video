@@ -1,9 +1,112 @@
 [
-  {"surface": "蒲郡", "pronunciation": "ガマゴオリ", "accent_type": 4},
-  {"surface": "三国", "pronunciation": "ミクニ", "accent_type": 1},
-  {"surface": "まくり差し", "pronunciation": "マクリザシ", "accent_type": 0},
-  {"surface": "ダッシュ勢", "pronunciation": "ダッシュゼイ", "accent_type": 0},
-  {"surface": "万舟", "pronunciation": "マンシュウ", "accent_type": 2},
-  {"surface": "払戻金", "pronunciation": "ハライモドシキン", "accent_type": 0},
-  {"surface": "最高払戻", "pronunciation": "サイコーハライモドシ", "accent_type": 0}
+ {
+  "surface": "蒲郡",
+  "pronunciation": "ガマゴオリ",
+  "accent_type": 4
+ },
+ {
+  "surface": "三国",
+  "pronunciation": "ミクニ",
+  "accent_type": 1
+ },
+ {
+  "surface": "まくり差し",
+  "pronunciation": "マクリザシ",
+  "accent_type": 0
+ },
+ {
+  "surface": "ダッシュ勢",
+  "pronunciation": "ダッシュゼイ",
+  "accent_type": 0
+ },
+ {
+  "surface": "万舟",
+  "pronunciation": "マンシュウ",
+  "accent_type": 2
+ },
+ {
+  "surface": "払戻金",
+  "pronunciation": "ハライモドシキン",
+  "accent_type": 0
+ },
+ {
+  "surface": "最高払戻",
+  "pronunciation": "サイコーハライモドシ",
+  "accent_type": 0
+ },
+ {
+  "surface": "先マイ",
+  "pronunciation": "センマイ",
+  "accent_type": 0
+ },
+ {
+  "surface": "外マイ",
+  "pronunciation": "ソトマイ",
+  "accent_type": 0
+ },
+ {
+  "surface": "直まくり",
+  "pronunciation": "ジカマクリ",
+  "accent_type": 0
+ },
+ {
+  "surface": "絞りまくり",
+  "pronunciation": "シボリマクリ",
+  "accent_type": 0
+ },
+ {
+  "surface": "壁追走",
+  "pronunciation": "カベツイソウ",
+  "accent_type": 0
+ },
+ {
+  "surface": "最内差し",
+  "pronunciation": "サイウチザシ",
+  "accent_type": 0
+ },
+ {
+  "surface": "展開突き",
+  "pronunciation": "テンカイヅキ",
+  "accent_type": 0
+ },
+ {
+  "surface": "凹み",
+  "pronunciation": "ヘコミ",
+  "accent_type": 0
+ },
+ {
+  "surface": "スリット隊形",
+  "pronunciation": "スリットタイケイ",
+  "accent_type": 0
+ },
+ {
+  "surface": "攻め筋",
+  "pronunciation": "セメスジ",
+  "accent_type": 0
+ },
+ {
+  "surface": "買い目",
+  "pronunciation": "カイメ",
+  "accent_type": 0
+ },
+ {
+  "surface": "確率帯",
+  "pronunciation": "カクリツタイ",
+  "accent_type": 0
+ },
+ {
+  "surface": "直前情報",
+  "pronunciation": "チョクゼンジョウホウ",
+  "accent_type": 0
+ },
+ {
+  "surface": "解析実行",
+  "pronunciation": "カイセキジッコウ",
+  "accent_type": 0
+ },
+ {
+  "surface": "資金配分",
+  "pronunciation": "シキンハイブン",
+  "accent_type": 0
+ }
 ]
