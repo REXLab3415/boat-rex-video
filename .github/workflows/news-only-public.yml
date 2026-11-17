@@ -1,0 +1,93 @@
+name: 出走表サイトだけ公開(公開側で動かす・無料枠を使わない)
+
+# 公開リポジトリ(boat-rex-video)は、Actionsの無料枠の対象外。ここで、boat-scenario-pro の中身を取り込んで、
+# 「出走表を作る → Cloudflare Pagesに公開」までを動かす。news-only.yml(boat-scenario-pro側)と、同じ作り。
+# 動画の画像は、作るときに、boat-rex-video の uploaded/日付.json から、最新の動画IDを取り込む。
+# 手で動かしたときだけ動く(自動では動かない)。
+#
+# 必要な秘密の値(boat-rex-video の Settings → Secrets and variables → Actions に登録)
+#   PRIVATE_REPO_READ_TOKEN : boat-scenario-pro を読むための鍵(読むだけ)
+#   CLOUDFLARE_API_TOKEN    : Cloudflare Pagesに公開するための鍵
+#   CLOUDFLARE_ACCOUNT_ID   : CloudflareのアカウントID
+#
+# やらないこと: news_data の保存(コミット)。保存は、毎朝7時の自動更新(boat-scenario-pro側)が行う。
+# 失敗したときは、赤で終わる。途中で止まったときに、古いページを上書きしない。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-only-public
+  cancel-in-progress: false
+
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 必要な秘密の値がそろっているか確認
+        env:
+          T1: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
+          T2: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          T3: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ng=0
+          [ -z "$T1" ] && { echo "::error::秘密の値 PRIVATE_REPO_READ_TOKEN が登録されていません"; ng=1; }
+          [ -z "$T2" ] && { echo "::error::秘密の値 CLOUDFLARE_API_TOKEN が登録されていません"; ng=1; }
+          [ -z "$T3" ] && { echo "::error::秘密の値 CLOUDFLARE_ACCOUNT_ID が登録されていません"; ng=1; }
+          exit $ng
+
+      - name: boat-scenario-pro を取り込む(読むだけ)
+        uses: actions/checkout@v4
+        with:
+          repository: REXLab3415/boat-scenario-pro
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
+          path: site
+          persist-credentials: false
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 公式サイトに「拒否(403)」されたあとは、停止の目印(fetch_stopped.flag)が残る。目印がある間は、公式にアクセスしない。
+      - name: 停止の目印を確認
+        working-directory: site
+        run: |
+          if [ -f fetch_stopped.flag ]; then
+            echo "::error::公式サイトからの取得は停止中です(fetch_stopped.flag があります)。出走表サイトは、作らず・公開せずに止めます"
+            exit 1
+          fi
+
+      - name: 出走表を作る準備①(PDFの読み取りと、画面の計算の部品)
+        run: |
+          python --version
+          python -m pip --version
+          python -m pip install pdfplumber playwright
+
+      - name: 出走表を作る準備②(画面の計算に使うブラウザ)
+        run: python -m playwright install --with-deps chromium
+
+      - name: 出走表を作る(画面だけを news_public に作る)
+        working-directory: site
+        run: python news_build.py
+
+      - name: 作ったフォルダに、トップの画面があるか確認
+        working-directory: site
+        run: |
+          if [ ! -f news_public/index.html ]; then
+            echo "::error::news_public/index.html がありません。公開せずに止めます"
+            exit 1
+          fi
+          grep -o "i.ytimg.com/vi/[A-Za-z0-9_-]*" news_public/index.html | head -1 || echo "トップに動画の画像が見つかりませんでした(準備中の表示の可能性)"
+
+      - name: 出走表を公開(Cloudflare Pages)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: site
+          wranglerVersion: "4"
+          command: pages deploy news_public --project-name=boat-rex-news --branch=main
