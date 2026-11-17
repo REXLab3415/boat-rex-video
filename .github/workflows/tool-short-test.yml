@@ -1,0 +1,93 @@
+name: ツール紹介ショートのテスト(手動・YouTubeには上げない)
+
+# 「Run workflow」を押すと、ツールの画面を自動で操作して撮り、キャスターの声つきのショート(mp4)を作る。
+# できたもの: 実行ページの下の Artifacts の「tool-short-テスト」(30日で消える)。YouTubeには上げない。
+# テスト版: 直前情報とオッズは仮の値(公式には接続しない)。
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "内容を決める日(YYYYMMDD。例 20261117)。空欄なら、今日(日本時間)。同じ日は、何度作っても同じ内容"
+        required: false
+        default: ""
+      caster:
+        description: "キャスターを固定する(c0〜c3)。空欄なら、日付で決まる人"
+        required: false
+        default: ""
+      voice:
+        description: "voicevox=声つき / dummy=音声なしの映像確認用(早い)"
+        required: true
+        type: choice
+        options: [voicevox, dummy]
+        default: voicevox
+
+permissions:
+  contents: read
+
+jobs:
+  tool-short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 公開側(boat-rex-video)を取得
+        uses: actions/checkout@v4
+        with:
+          path: pub
+
+      - name: 非公開側(boat-scenario-pro・ツール本体)を取得
+        uses: actions/checkout@v4
+        with:
+          repository: REXLab3415/boat-scenario-pro
+          ref: main
+          token: ${{ secrets.BOAT_PAT || secrets.BSP_TOKEN }}
+          path: tool
+
+      - name: 日付を決める
+        id: d
+        env:
+          IN: ${{ github.event.inputs.date }}
+        run: |
+          if [ -z "$IN" ]; then IN="$(TZ=Asia/Tokyo date +%Y%m%d)"; fi
+          if ! echo "$IN" | grep -Eq '^[0-9]{8}$'; then echo "::error::日付は 20261117 の形で入力してください(入力: $IN)"; exit 1; fi
+          echo "date=$IN" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(ffmpeg・日本語フォント・Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          pip install playwright numpy
+          playwright install --with-deps chromium
+
+      - name: VOICEVOXエンジンを起動(Docker)
+        if: github.event.inputs.voice != 'dummy'
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then echo "VOICEVOX ready"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::VOICEVOXエンジンが起動しませんでした"; docker logs voicevox || true; exit 1
+
+      - name: ツール紹介ショートを作る
+        working-directory: pub
+        env:
+          CASTER_FORCE: ${{ github.event.inputs.caster }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+        run: |
+          python build_tool_short.py --date "$DATE_ARG" --tool "$GITHUB_WORKSPACE/tool" --voice "$VOICE_INPUT" --out out
+
+      - name: 保存(実行ページの下の Artifacts からダウンロード)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-short-テスト
+          path: |
+            pub/out/tool_short_*.mp4
+            pub/out/tool_short_info.json
+          if-no-files-found: ignore
+          retention-days: 30
