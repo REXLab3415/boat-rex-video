@@ -59,7 +59,7 @@ def capture(tool_dir, out_dir, venue, race_no, move_pos, move_name, tab_key, bud
         shots.setdefault(beat, []).append(p)
     with sync_playwright() as p:
         br = p.chromium.launch(args=["--font-render-hinting=none"])
-        ctx = br.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=DSF, has_touch=False)
+        ctx = br.new_context(viewport={"width": VW, "height": VH}, device_scale_factor=DSF, has_touch=False, timezone_id="Asia/Tokyo", locale="ja-JP")
         pg = ctx.new_page()
         pg.route("**/api/live*", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(live, ensure_ascii=False)))
         pg.route("**/api/hit*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"ok":true}'))

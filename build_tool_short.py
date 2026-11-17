@@ -139,20 +139,34 @@ def main():
     ap.add_argument("--date", required=True); ap.add_argument("--tool", required=True)
     ap.add_argument("--picks", default=""); ap.add_argument("--voice", choices=["voicevox", "dummy"], default="voicevox")
     ap.add_argument("--voicevox-url", default="http://127.0.0.1:50021"); ap.add_argument("--fps", type=int, default=30)
-    ap.add_argument("--out", default="out"); ap.add_argument("--history", default=""); ap.add_argument("--stills", default="")
+    ap.add_argument("--out", default="out"); ap.add_argument("--history", default=""); ap.add_argument("--live", action="store_true", help="本物の直前情報・オッズで撮る(本番)。なしは、仮の値のテスト版"); ap.add_argument("--stills", default="")
     a = ap.parse_args()
     picks = None
     hist_path = a.history or os.path.join(HERE, "tool_short_history.json")
     hist = json.load(open(hist_path, encoding="utf-8")) if os.path.exists(hist_path) else []
+    for p_ in glob.glob(os.path.join(HERE, "uploaded", "*_toolshort.json")):          # 投稿済みの記録(本番)
+        try:
+            r_ = json.load(open(p_, encoding="utf-8"))
+            if r_.get("key"): hist.append({"date": os.path.basename(p_)[:8], "key": r_["key"]})
+        except Exception: pass
     recent = {h["key"] for h in hist if int(h["date"]) < int(a.date) and int(h["date"]) >= int(a.date) - 100}   # 目安: 直近30日ぶん
     os.makedirs(a.out, exist_ok=True)
     cap_dir = os.path.join(a.out, "tool_frames")
     shutil.rmtree(cap_dir, ignore_errors=True)
     shots = info = c = None
+    live = None; fixed_vn = (None, None)
+    if a.live:
+        import tool_live as TL
+        ymd = TL.jst_ymd()
+        if a.date != ymd and os.environ.get("ALLOW_OLD_DATE") != "1":
+            print(f"::error::本物のデータで撮れるのは、日本時間の今日({ymd})だけです(指定: {a.date})"); return 1
+        got = TL.pick_live(a.tool, a.date, int(a.date))
+        if not got: return 1
+        live, fixed_vn = got["live"], (got["venue"], got["no"])
     for skip in range(8):                                   # 選べない組み合わせだったときは、次の候補(毎回、同じ順で決まる)
         c = pick_content(a.date, picks, skip, recent)
         try:
-            shots, info = TC.capture(a.tool, cap_dir, c["venue"], c["no"], c["pos"], c["move"], c["tab"][0], c["budget"], int(a.date) + skip)
+            shots, info = TC.capture(a.tool, cap_dir, fixed_vn[0] or c["venue"], fixed_vn[1] or c["no"], c["pos"], c["move"], c["tab"][0], c["budget"], int(a.date) + skip, live=live)
             c["venue"], c["no"] = info["venue"], info["no"]
             break
         except RuntimeError as e:
@@ -188,6 +202,17 @@ def main():
     stills = [float(x) for x in a.stills.split(",")] if a.stills else None
     mp4 = os.path.join(a.out, f"tool_short_{a.date}.mp4")
     render(hp, total, a.fps, mp4, wav, stills=stills, still_dir=os.path.join(a.out, "stills"))
+    credit = voice.caster.get("credit") or voice.caster["voice"]
+    mm, dd = int(a.date[4:6]), int(a.date[6:8])
+    meta = {"date": a.date, "live": bool(a.live), "key": entry["key"],
+            "title": f"【ボートレース解析ツール】{mm}/{dd} {c['venue']}{c['no']}Rの買い目と資金配分|BOAT REX PRO #Shorts",
+            "description": (f"BOAT REX PROは、ボートレースの直前情報とオッズから、買い目と資金配分を出す解析ツールです。\n"
+                            f"今回は、{c['venue']}ボート{c['no']}レースを、{c['pos']}コース{c['move']}の攻め筋で解析しました。\n\n"
+                            f"ツールの詳細、答え合わせ動画は、プロフィール欄のリンクからご覧ください。\n"
+                            f"※解析であり、的中や利益を保証するものではありません。舟券の購入は、ご自身の判断でお願いします。\n\n"
+                            f"■クレジット\nVOICEVOX:{credit}\n\n#ボートレース #競艇 #BOATREXPRO #Shorts"),
+            "tags": ["ボートレース", "競艇", "解析ツール", "買い目", "資金配分", "直前情報", "BOAT REX PRO", "Shorts", c["venue"]]}
+    json.dump(meta, open(os.path.join(a.out, "tool_short_meta.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     json.dump({"date": a.date, "content": {k: v for k, v in c.items() if k != "tab"} | {"tab": c["tab"][0]}, "texts": [b["text"] for b in beats],
                "caster": voice.caster["id"], "sec": round(total, 1)}, open(os.path.join(a.out, "tool_short_info.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if not stills: print(f"[done] {mp4} {os.path.getsize(mp4)/1e6:.1f}MB {total:.1f}秒")
