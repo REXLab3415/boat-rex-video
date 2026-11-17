@@ -14,6 +14,16 @@ on:
         description: "キャスターを固定する(c0〜c3)。空欄なら、日付で決まる人"
         required: false
         default: ""
+      into_gain:
+        description: "抑揚の強さ(青山龍星の高低の動きを、どれだけ写すか。1.0が標準。強すぎたら0.7、弱すぎたら1.3など)"
+        required: false
+        default: "1.0"
+      match:
+        description: "on=青山龍星のアクセント・抑揚に合わせる / off=キャスターの標準のまま(聞き比べ用)"
+        required: true
+        type: choice
+        options: ["on", "off"]
+        default: "on"
       voice:
         description: "voicevox=声つき / dummy=音声なしの映像確認用(早い)"
         required: true
@@ -77,9 +87,13 @@ jobs:
         env:
           CASTER_FORCE: ${{ github.event.inputs.caster }}
           VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+          INTO_GAIN: ${{ github.event.inputs.into_gain || '1.0' }}
+          MATCH_VAL: ${{ github.event.inputs.match || 'on' }}
           DATE_ARG: ${{ steps.d.outputs.date }}
         run: |
-          python build_tool_short.py --date "$DATE_ARG" --tool "$GITHUB_WORKSPACE/tool" --voice "$VOICE_INPUT" --out out
+          mkdir -p out
+          if [ "$MATCH_VAL" = "off" ]; then export MATCH_AOYAMA=0; else export MATCH_AOYAMA=1; fi
+          python build_tool_short.py --date "$DATE_ARG" --tool "$GITHUB_WORKSPACE/tool" --voice "$VOICE_INPUT" --out out 2>&1 | tee out/tool_short_log.txt
 
       - name: 保存(実行ページの下の Artifacts からダウンロード)
         if: ${{ !cancelled() }}
@@ -89,5 +103,7 @@ jobs:
           path: |
             pub/out/tool_short_*.mp4
             pub/out/tool_short_info.json
+            pub/out/tool_short_log.txt
+            pub/out/tool_short_history_entry.json
           if-no-files-found: ignore
           retention-days: 30
