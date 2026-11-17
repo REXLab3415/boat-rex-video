@@ -16,7 +16,7 @@ on:
         required: false
         default: ""
       voice:
-        description: "voicevox=本番の声(青山龍星) / dummy=音声なしの映像確認用(早い)"
+        description: "voicevox=本番の声(キャスターごと) / dummy=音声なしの映像確認用(早い)"
         required: true
         type: choice
         options: [voicevox, dummy]
@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: false
+      caster:
+        description: "キャスターを指定する(上げ直し用。c0=青山龍星 / c1=雀松朱司 / c2=後鬼 / c3=夜語トバリ)。空欄なら、日付どおりに決まる。指定したときは、Xのメールとインスタは送らない"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -93,6 +98,8 @@ jobs:
         env:
           DATE_ARG: ${{ steps.d.outputs.date }}
           VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+          CASTER_FORCE: ${{ github.event.inputs.caster }}
+          CASTER_STRICT: ${{ github.event.inputs.caster != '' && '1' || '' }}
         run: |
           python build_allrace_video.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
 
@@ -138,6 +145,8 @@ jobs:
         env:
           DATE_ARG: ${{ steps.d.outputs.date }}
           VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+          CASTER_FORCE: ${{ github.event.inputs.caster }}
+          CASTER_STRICT: ${{ github.event.inputs.caster != '' && '1' || '' }}
         run: |
           python build_short.py --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out
 
@@ -169,7 +178,7 @@ jobs:
 
       # ---- Xの投稿文を作って、メールで送る(失敗しても、動画は成功のまま)。ツールの的中が0件の日は送らない ----
       - name: Xの投稿文をメールで送る(失敗しても、動画は成功のまま)
-        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' && github.event.inputs.caster == '' }}
         continue-on-error: true
         env:
           MAIL_USER: sg34153415@gmail.com
@@ -185,7 +194,7 @@ jobs:
       # ---- ショートを、Xと同じ投稿文で、Instagramのリールに自動投稿(失敗しても、動画は成功のまま)。ツールの的中が0件の日は投稿しない ----
       # 夜(日本時間20:00〜翌5:00)に動いたときは、ここでは投稿しない。朝5:07に自動で動く instagram-reel.yml が、6:00に投稿する。
       - name: ショートをInstagramのリールに投稿する(失敗しても、動画は成功のまま)
-        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' && github.event.inputs.caster == '' }}
         continue-on-error: true
         env:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
