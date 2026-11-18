@@ -12,6 +12,14 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
+      date:
+        description: "確認用: 日付(例 20261118)。空欄=今日。入れたときは、動画だけ作って投稿しない"
+        required: false
+        default: ""
+      base:
+        description: "確認用: サイトのURL(例 https://boat-rex-news.pages.dev/2026-11-18/)。空欄=https://boat-rex-pro.com/"
+        required: false
+        default: ""
       force:
         description: "今日の分を、投稿済みでも、もう一度上げる(直したあとの上げ直し用)"
         required: false
@@ -51,10 +59,13 @@ jobs:
 
       - name: 日付と、投稿済みかを確認
         id: d
+        env:
+          INPUT_DATE: ${{ github.event.inputs.date }}
         run: |
           D="$(TZ=Asia/Tokyo date +%Y%m%d)"
-          echo "date=$D" >> "$GITHUB_OUTPUT"
           POST="true"
+          if [ -n "$INPUT_DATE" ]; then D="$INPUT_DATE"; POST="false"; fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
           if [ "${{ github.event.inputs.voice }}" = "dummy" ]; then POST="false"; fi
           echo "post=$POST" >> "$GITHUB_OUTPUT"
           if [ "$POST" = "true" ] && [ "${{ github.event.inputs.force }}" != "true" ] && [ -f "pub/uploaded/${D}_newsshort.json" ]; then
@@ -96,9 +107,12 @@ jobs:
           INTO_GAIN: ${{ github.event.inputs.into_gain || '1.0' }}
           MATCH_AOYAMA: "1"
           DATE_ARG: ${{ steps.d.outputs.date }}
+          BASE_INPUT: ${{ github.event.inputs.base }}
+          ALLOW_OLD_DATE: ${{ github.event.inputs.date != '' && '1' || '0' }}
         run: |
           mkdir -p out
-          python build_news_short.py --live --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out 2>&1 | tee out/news_short_log.txt
+          BASE_ARG="${BASE_INPUT:-https://boat-rex-pro.com/}"
+          python build_news_short.py --live --date "$DATE_ARG" --base "$BASE_ARG" --voice "$VOICE_INPUT" --out out 2>&1 | tee out/news_short_log.txt
 
       - name: 保存(実行ページの下の Artifacts からダウンロード)
         if: ${{ !cancelled() && steps.d.outputs.done != 'true' }}
