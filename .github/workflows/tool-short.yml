@@ -2,8 +2,8 @@ name: ツール紹介ショート(毎日の自動投稿)
 
 # 毎日、日本時間 11:30・13:00・15:00 に動く(投稿済みなら、あとの回は飛ばす)。
 # 今日これから発走するレースを1つ選び、公式サイトの本物の直前情報とオッズで、ツールの画面を自動操作して撮り、
-# キャスターの声つきのショートを作って、YouTubeに投稿する。公開の設定は tool_short_privacy.txt の1語(なければ限定公開)。
-# 手動で動かすときは「YouTubeに投稿する」にチェックを入れない限り、投稿しない(mp4を作るだけ)。
+# キャスターの声つきのショートを作って、YouTubeに投稿する。公開の設定と時刻の決まりは、ほかの動画と同じ(youtube_privacy.txt)。
+# 手動で動かしても、同じように投稿する(音声なし dummy のときだけ、投稿しない)。
 on:
   schedule:
     - cron: "30 2 * * *"
@@ -11,8 +11,8 @@ on:
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
-      post:
-        description: "YouTubeに投稿する(チェックなし=mp4を作るだけ。投稿済みの日は投稿しない)"
+      force:
+        description: "今日の分を、投稿済みでも、もう一度上げる(直したあとの上げ直し用)"
         required: false
         type: boolean
         default: false
@@ -53,11 +53,10 @@ jobs:
         run: |
           D="$(TZ=Asia/Tokyo date +%Y%m%d)"
           echo "date=$D" >> "$GITHUB_OUTPUT"
-          POST="false"
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.post }}" = "true" ]; then POST="true"; fi
+          POST="true"
           if [ "${{ github.event.inputs.voice }}" = "dummy" ]; then POST="false"; fi
           echo "post=$POST" >> "$GITHUB_OUTPUT"
-          if [ "$POST" = "true" ] && [ -f "pub/uploaded/${D}_toolshort.json" ]; then
+          if [ "$POST" = "true" ] && [ "${{ github.event.inputs.force }}" != "true" ] && [ -f "pub/uploaded/${D}_toolshort.json" ]; then
             echo "done=true" >> "$GITHUB_OUTPUT"
             echo "::notice::${D} のツール紹介ショートは投稿済みです。今回は何もしません"
           else
@@ -130,9 +129,12 @@ jobs:
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
         run: |
           pip install google-api-python-client google-auth requests
-          python upload_tool_short.py --date "$DATE_ARG" --out out
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_tool_short.py --date "$DATE_ARG" --out out $EXTRA
 
       - name: 投稿の記録を保存(同じ日の二重投稿と、同じ内容の重なりを防ぐ)
         if: steps.d.outputs.done != 'true' && steps.d.outputs.post == 'true'
