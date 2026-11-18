@@ -57,34 +57,8 @@ def beats_for(c, date):
 
 # ---- 声: 青山龍星で調整したアクセントと抑揚の付き方を、その日のキャスターに写す ----
 def synth_match(voice, text, gain, log):
-    """青山龍星で読ませて取ったアクセントの位置・高低の動き(山と谷)を、その日のキャスター自身の声の高さの中心に合わせて写す。
-    声質・声の高さそのもの・間のとり方は、キャスターのまま。青山龍星の日と、音声なしの確認用は、そのまま読ませる。"""
-    if voice.mode != "voicevox":
-        return voice.synth(text)
-    if not hasattr(voice, "_aoyama"):
-        voice._aoyama = casters.find_style_id(voice._get("/speakers"), casters.CASTERS[0])
-    if voice._aoyama is None or voice._aoyama == voice.speaker:
-        return voice.synth(text)
-    import urllib.parse as up
-    def aq(sp): return json.loads(voice._post(f"/audio_query?text={up.quote(text)}&speaker={sp}"))
-    qa, qt = aq(voice._aoyama), aq(voice.speaker)
-    qt["speedScale"], qt["prePhonemeLength"], qt["postPhonemeLength"] = 1.05, 0.05, 0.12
-    pa = [[m["pitch"] for m in ap["moras"]] for ap in qa["accent_phrases"]]
-    pt = [[m["pitch"] for m in ap["moras"]] for ap in qt["accent_phrases"]]
-    acc_a, acc_t = [ap["accent"] for ap in qa["accent_phrases"]], [ap["accent"] for ap in qt["accent_phrases"]]
-    same = [len(x) for x in pa] == [len(x) for x in pt]
-    if not same:
-        log.append(f"[抑揚] 区切りが青山龍星と違うため、そのまま読ませました: {text}")
-    else:
-        va = [p for x in pa for p in x if p > 0]; vt = [p for x in pt for p in x if p > 0]
-        ma, mt = sum(va) / len(va), sum(vt) / len(vt)
-        for ap_t, ap_a in zip(qt["accent_phrases"], qa["accent_phrases"]):
-            for m_t, m_a in zip(ap_t["moras"], ap_a["moras"]):
-                if m_t["pitch"] > 0 and m_a["pitch"] > 0:
-                    m_t["pitch"] = mt + gain * (m_a["pitch"] - ma)
-        log.append(f"[抑揚] アクセント位置 青山={acc_a} 本人の初期値={acc_t}{'(同じ)' if acc_a == acc_t else '(違い→青山の山谷に合わせました)'} / {text}")
-    wav = voice._post(f"/synthesis?speaker={voice.speaker}", qt)
-    return wav, qt
+    """青山龍星に合わせる処理は、共通部分(build_video.py の Voice.synth)に移した。ここは呼ぶだけ。"""
+    return voice.synth(text, gain=gain, log=log)
 
 
 def assemble(texts, voice, gain=1.0, log=None):

@@ -108,5 +108,29 @@
   "surface": "資金配分",
   "pronunciation": "シキンハイブン",
   "accent_type": 0
+ },
+ {
+  "surface": "全場",
+  "pronunciation": "ゼンジョウ",
+  "accent_type": 0,
+  "check": "全場の答え合わせは、チャンネルの最新動画で。"
+ },
+ {
+  "surface": "各場",
+  "pronunciation": "カクジョウ",
+  "accent_type": 0,
+  "check": "各場の結果を確認します。"
+ },
+ {
+  "surface": "レース場",
+  "pronunciation": "レースジョウ",
+  "accent_type": 0,
+  "check": "レース場と、レース番号を選択します。"
+ },
+ {
+  "surface": "この場",
+  "pronunciation": "コノジョウ",
+  "accent_type": 0,
+  "check": "この場の特徴が、文章で説明されています。"
  }
 ]

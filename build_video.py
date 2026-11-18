@@ -125,6 +125,9 @@ class Voice:
         self.mode, self.url = mode, url.rstrip("/")
         self.audible, self.bad_query = audible, bad_query      # 動作確認用の仮の設定(通常は使わない)
         self.speaker = None
+        self.text_fix = {}                                     # 辞書が文の中で効かなかった言葉 → 読み上げ用のカタカナ(保険)
+        self.gain = float(os.environ.get("INTO_GAIN") or 1.0) if os.environ.get("MATCH_AOYAMA", "1") == "1" else 0.0
+        self._aoyama = None                                    # 青山龍星の声の番号(キャスターが別の人の日だけ使う)
         self.caster = casters.pick_for_date(date)              # 日付で決まるキャスター(声が見つからなければ現行に戻る)
         if mode == "voicevox":
             self.speaker = self._resolve_speaker()
@@ -171,6 +174,21 @@ class Voice:
                     print(f"[dict] {w['surface']} → {kana} OK")
             except Exception as e:
                 bad.append(f"{w['surface']}(確認に失敗: {e})")
+                continue
+            # 本当の文の中で効くかを確かめる。効かなければ、読み上げる文だけカタカナに置き換える(画面の文字は変えない)
+            chk = w.get("check")
+            if chk:
+                try:
+                    q = json.loads(self._post(f"/audio_query?text={urllib.parse.quote(chk)}&speaker={self.speaker}"))
+                    kana = re.sub(r"[' /_、]", "", q.get("kana", ""))
+                    if w["pronunciation"] not in kana:
+                        self.text_fix[w["surface"]] = w["pronunciation"]
+                        print(f"[dict] {w['surface']} は文の中では効かないため、読み上げ時にカタカナへ置き換えます({kana})")
+                    else:
+                        print(f"[dict] {w['surface']} 文の中でも OK")
+                except Exception as e:
+                    self.text_fix[w["surface"]] = w["pronunciation"]
+                    print(f"[dict] {w['surface']} の文中確認に失敗したため、カタカナへ置き換えます: {e}")
         if bad:
             msg = "、".join(bad)
             print(f"[dict] 登録できなかった言葉: {msg}")
@@ -196,13 +214,50 @@ class Voice:
         print(f"[caster] {self.caster['id']} 声={self.caster['voice']}")
         return sid
 
-    def synth(self, text):
-        """return (wav_bytes, query_dict)"""
+    def _spoken(self, text):
+        """読み上げ用の文(辞書が効かなかった言葉だけ、カタカナに置き換える)"""
+        for k in sorted(self.text_fix, key=len, reverse=True):
+            text = text.replace(k, self.text_fix[k])
+        return text
+
+    def synth(self, text, gain=None, log=None):
+        """return (wav_bytes, query_dict)
+        キャスターが青山龍星以外の日は、青山龍星で読ませて取ったアクセントの位置・高低の動き(山と谷)を、
+        そのキャスター自身の声の高さの中心に合わせて写す(声質・声の高さ・間のとり方はキャスターのまま)。"""
         if self.mode == "voicevox":
-            q = json.loads(self._post(f"/audio_query?text={urllib.parse.quote(text)}&speaker={self.speaker}"))
+            gain = self.gain if gain is None else gain
+            text = self._spoken(text)
+            def aq(sp):
+                return json.loads(self._post(f"/audio_query?text={urllib.parse.quote(text)}&speaker={sp}"))
+            q = aq(self.speaker)
             q["speedScale"] = 1.05
             q["prePhonemeLength"] = 0.05
             q["postPhonemeLength"] = 0.12
+            if gain > 0:
+                if self._aoyama is None:
+                    self._aoyama = casters.find_style_id(self._get("/speakers"), casters.CASTERS[0]) or False
+                if self._aoyama and self._aoyama != self.speaker:
+                    try:
+                        qa = aq(self._aoyama)
+                        pa = [[m["pitch"] for m in ap["moras"]] for ap in qa["accent_phrases"]]
+                        pt = [[m["pitch"] for m in ap["moras"]] for ap in q["accent_phrases"]]
+                        if [len(x) for x in pa] != [len(x) for x in pt]:
+                            msg = f"[抑揚] 区切りが青山龍星と違うため、そのまま読ませました: {text}"
+                            (log.append(msg) if log is not None else print(msg))
+                        else:
+                            va = [p for x in pa for p in x if p > 0]
+                            vt = [p for x in pt for p in x if p > 0]
+                            if va and vt:
+                                ma, mt = sum(va) / len(va), sum(vt) / len(vt)
+                                for ap_t, ap_a in zip(q["accent_phrases"], qa["accent_phrases"]):
+                                    for m_t, m_a in zip(ap_t["moras"], ap_a["moras"]):
+                                        if m_t["pitch"] > 0 and m_a["pitch"] > 0:
+                                            m_t["pitch"] = mt + gain * (m_a["pitch"] - ma)
+                                if log is not None:
+                                    log.append(f"[抑揚] 青山龍星の山谷に合わせました / {text}")
+                    except Exception as e:
+                        msg = f"[抑揚] 合わせられなかったため、そのまま読ませました({type(e).__name__}: {e}): {text}"
+                        (log.append(msg) if log is not None else print(msg))
             wav = self._post(f"/synthesis?speaker={self.speaker}", q)
             if self.bad_query:
                 q = dict(q, accent_phrases=[])            # 計画表が使えない状況を再現(確認用)
