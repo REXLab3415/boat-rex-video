@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+:root{ --cy:#22d3ee; --am:#fbbf24; --rd:#fb4d6a; --tx:#e8eefb; --mut:#8fa3c7; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:#0b1630;
+  font-family:"Noto Sans CJK JP","Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;color:var(--tx)}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden;
+  background:radial-gradient(900px 700px at 30% 8%,rgba(34,211,238,.18),transparent 62%),radial-gradient(900px 800px at 90% 70%,rgba(59,130,246,.16),transparent 60%),linear-gradient(180deg,#0d1b38,#07122a)}
+#stage::before{content:"";position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:60px 60px}
+.abs{position:absolute}
+#brand{left:60px;top:70px;display:flex;align-items:center;gap:16px}
+#brand .mk{border-radius:22%;background:linear-gradient(135deg,var(--cy),#3b82f6);display:grid;place-items:center;font-weight:900;color:#06101f}
+#brand .mk{width:56px;height:56px;font-size:32px}
+#brand .nm{font-weight:900;letter-spacing:.07em;font-size:42px}
+#brand .tg{padding:4px 18px;border:2px solid var(--cy);color:var(--cy);border-radius:999px;font-size:28px;font-weight:700}
+#logo{left:0;top:0;width:1080px;height:1920px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;transform-origin:50% 50%}
+#logo{background:#fff}
+#logo img{width:1000px;display:block}
+#phone{left:40px;top:170px;width:1000px;height:1270px;border-radius:28px;overflow:hidden;border:5px solid rgba(255,255,255,.35);box-shadow:0 20px 60px rgba(0,0,0,.5);background:#0b1630}
+#phone img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;display:none}
+#bubble{left:430px;top:1480px;width:590px;padding:26px 30px;border-radius:30px;background:rgba(10,24,52,.92);border:3px solid var(--cy);
+  font-size:40px;font-weight:800;line-height:1.5;color:#fff}
+#bubble::before{content:"";position:absolute;left:-26px;top:70px;border:16px solid transparent;border-right:26px solid var(--cy)}
+#cslot{position:absolute;left:70px;bottom:0;width:344px;height:430px;transform-origin:50% 100%}
+#cwrap{position:absolute;left:0;top:0;transform-origin:0 0;transform:scale(.56)}
+#cwrap img{position:absolute;display:block}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="brand" class="abs"><div class="mk">B</div><div class="nm" id="brandnm"></div><div class="tg">出走表</div></div>
+  <div id="phone" class="abs"></div>
+  <div id="bubble" class="abs"></div>
+  <div id="cslot"><div id="cwrap"></div></div>
+  <div id="logo" class="abs"><img src="news_short_logo.png"></div>
+</div>
+<script>
+const D = /*__DATA__*/null;
+const B = D.beats;
+const $ = s => document.querySelector(s);
+const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
+const eo = x => { x=clamp(x,0,1); return 1-Math.pow(1-x,3); };
+$('#brandnm').textContent = D.brand;
+$('#phone').innerHTML = D.images.map((s,i)=>`<img id="im${i}" src="${s}">`).join('');
+/* ---- キャスター(横動画と同じ部品・同じ口パク) ---- */
+(function buildCaster(){
+  const C = D.caster, w = $('#cwrap'); let h = `<img src="assets/caster_base.png" style="left:0;top:0">`;
+  for(const [k,p] of Object.entries(C.patches)){
+    const hide = (k==='mouth_closed') ? '' : (k==='eyes_closed' ? 'display:none;' : 'opacity:0;');
+    h += `<img id="p-${k}" src="assets/${k}.png" style="${hide}left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px">`;
+  }
+  w.style.width = C.w+'px'; w.style.height = C.h+'px'; w.innerHTML = h;
+})();
+let _blink = false;
+const OPEN = ['a','i','u','e','o'];
+const ss = x => { x = clamp(x,0,1); return x*x*(3-2*x); };
+function mouthModel(vis){
+  if(vis._m) return vis._m;
+  const n = vis.length, sg = vis.map(v=>({s:v[0], e:v[1], k:v[2], a:1}));
+  for(let i=1;i<n-1;i++){
+    if(sg[i].k==='closed' && (sg[i].e-sg[i].s)<0.12 && sg[i-1].k!=='closed' && sg[i+1].k!=='closed'){
+      sg[i].k = sg[i-1].k; sg[i].a = 0.6;
+    }
+  }
+  sg.forEach((g,i)=>{
+    g.hr = (i===0 || sg[i-1].k==='closed') ? 0.035 : 0.045;
+    g.hf = (i===n-1 || sg[i+1].k==='closed') ? 0.05 : 0.045;
+  });
+  return vis._m = sg;
+}
+function mouthWeights(vis, at){
+  const w = {a:0,i:0,u:0,e:0,o:0};
+  for(const g of mouthModel(vis)){
+    if(g.k==='closed') continue;
+    if(g.s-g.hr > at) break;
+    const x = Math.min((at-(g.s-g.hr))/(2*g.hr), ((g.e+g.hf)-at)/(2*g.hf));
+    const v = ss(x)*g.a; if(v>w[g.k]) w[g.k] = v;
+  }
+  let S = 0; for(const k of OPEN) S += w[k];
+  if(S>1) for(const k of OPEN) w[k] /= S;
+  return w;
+}
+function setMouthWeights(vis, at, speaking){
+  const w = speaking ? mouthWeights(vis, at) : {a:0,i:0,u:0,e:0,o:0};
+  let rest = 0;
+  for(let j=OPEN.length-1;j>=0;j--){
+    const k = OPEN[j], al = rest>=0.999999 ? 0 : w[k]/(1-rest);
+    const g = document.getElementById('p-mouth_'+k); if(g) g.style.opacity = clamp(al,0,1).toFixed(3);
+    rest += w[k];
+  }
+}
+function openness(vis, at){
+  let m = 0; for(let j=0;j<5;j++){ const w = mouthWeights(vis, at-0.06*j); m += w.a+w.i+w.u+w.e+w.o; }
+  return m/5;
+}
+
+
+let _cur=-1;
+function render(t){
+  let bi = B.findIndex(b=> t>=b.start && t<b.start+b.dur); if(bi<0) bi = B.length-1;
+  const b = B[bi], lt = t-b.start;
+  // ロゴ: 最初の場面でズームイン→そのまま上の小さなロゴへ引き継ぐ(ロゴは消える)
+  const lg = $('#logo');
+  if(bi===0){ const p = clamp(lt/b.dur,0,1); lg.style.opacity = 1; lg.firstElementChild.style.transform = `scale(${(0.72+0.28*eo(p)).toFixed(4)})`; $('#phone').style.opacity=0; $('#bubble').style.opacity=0; $('#brand').style.opacity=0; }
+  else { const q = eo(lt/0.4); lg.style.opacity = (bi===1? 1-q : 0).toFixed(3); lg.firstElementChild.style.transform='scale(1)'; $('#phone').style.opacity=1; $('#bubble').style.opacity=q.toFixed(3); $('#brand').style.opacity=1; }
+  if(bi>0){
+    $('#bubble').textContent = b.text;
+    let k = 0; for(let i=0;i<b.frames.length;i++){ if(lt >= b.frames[i].at*b.dur) k = i; }
+    const idx = b.frames[k].img;
+    if(idx!==_cur){ if(_cur>=0) document.getElementById('im'+_cur).style.display='none'; document.getElementById('im'+idx).style.display='block'; _cur=idx; }
+  }
+  const at = lt - b.audioOffset, speaking = (b.audioLen>0 && at>=0 && at<=b.audioLen);
+  setMouthWeights(b.visemes||[], at, speaking);
+  const blink = ((t%3.7)<0.13) || ((t+1.9)%6.1<0.13);
+  if(blink!==_blink){ _blink = blink; document.getElementById('p-eyes_closed').style.display = blink?'':'none'; }
+  const m = speaking ? openness(b.visemes, at) : 0;
+  const lean = speaking ? Math.pow(Math.sin(Math.PI*clamp(at/0.8,0,1)),2) : 0;
+  const rot = Math.sin(t*0.7)*0.45 + Math.sin(t*1.7+1)*0.12 + lean*0.25;
+  const sy = 1 + 0.0035*Math.sin(t*1.5) + 0.008*m + 0.006*lean, sx = 1 + 0.0015*Math.sin(t*1.5) + 0.003*m + 0.003*lean;
+  document.getElementById('cslot').style.transform = `translate(${(Math.sin(t*0.9)*2.2).toFixed(2)}px,8px) rotate(${rot.toFixed(3)}deg) scale(${sx.toFixed(4)},${sy.toFixed(4)})`;
+}
+render(0);
+</script>
+</body>
+</html>
