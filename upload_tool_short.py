@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """out/ にできたツール紹介ショート(tool_short_日付.mp4)を、YouTubeに投稿する。
   - 同じ日をすでに投稿していたら(uploaded/日付_toolshort.json がある)、飛ばす。--force で上げ直す。
-  - 公開の設定は tool_short_privacy.txt の1語(unlisted=限定公開 / private / public)。ファイルがなければ unlisted。
+  - 公開の設定と、夜に動いたときの朝6:00予約公開は、ほかの動画と同じ(youtube_privacy.txt。いまは public)。
   - 鍵は環境変数 YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REFRESH_TOKEN(ほかの動画と同じ)。投稿の部品は upload_youtube.py をそのまま使う。
 """
 import argparse, json, os, re, sys, time
@@ -27,9 +27,7 @@ def main():
     meta = json.load(open(mp, encoding="utf-8"))
     if meta.get("date") != a.date or not meta.get("live"):
         print("::error title=ツール紹介ショートを投稿できません::本物のデータで作った、この日の動画ではありません。投稿しません"); return 1
-    pp = os.path.join(HERE, "tool_short_privacy.txt")
-    privacy = open(pp, encoding="utf-8").read().strip() if os.path.exists(pp) else "unlisted"
-    if privacy not in ("unlisted", "private", "public"): privacy = "unlisted"
+    privacy = U.read_privacy()
     title = meta["title"][:100].replace("<", "(").replace(">", ")")
     desc = U.clean_desc(meta["description"])
     miss = [k for k in ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN") if not os.environ.get(k)]
