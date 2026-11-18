@@ -13,6 +13,7 @@ import build_tool_short as BT  # noqa: E402   (声・口パク・動画の書き
 import casters  # noqa: E402
 import news_capture as NC  # noqa: E402
 
+NEWS_LOGO_SEC = 3.0        # ロゴのズームインの長さ(ツール紹介ショートは従来の1.5秒のまま)
 HARD_MAX_SEC = 175.0       # YouTubeのショートは3分まで。余裕を見た安全の線(これを超えたら投稿しない)
 BASE_DEFAULT = "https://boat-rex-pro.com/"
 
@@ -81,15 +82,19 @@ def main():
         print(f"::error title=出走表サイトの画面を撮れませんでした::{e}"); return 1
     t4, t5 = pick_topics(a.date, info)
     mm, dd = int(a.date[4:6]), int(a.date[6:8]); v, n = info["venue"], info["no"]
-    line1 = f"{mm}月{dd}日の注目レース。{v}ボート、{n}レース。"
+    # 最初の場面は3文を続けて読む。トップ画面は2文目の終わりまで映し、「○○ボート」を言い始めるところで場の一覧に切り替える
+    seg1 = f"{mm}月{dd}日の注目レース。"
+    seg2_sp, seg2_sh = "ボートレックスプロ、オリジナル出走表を見ていきましょう。", "BOAT REX PRO、オリジナル出走表を見ていきましょう。"
+    seg3 = f"{v}ボート、{n}レース。"
+    line1, line1_sp = seg1 + seg2_sh + seg3, seg1 + seg2_sp + seg3
     line2 = "ごらんのメンバーで行われます。"
     # 台本 = [ロゴ, ①〜⑥]。読ませる文(spoken)と、画面に出す文(shown)は、別に持つ(エスエスエス・ボートレックスプロの読みのため)
-    spoken = [None, line1, line2, VENUE_TOPICS[t4][0], LINE4, PLAYER_TOPICS[t5][0], LINE6_SPOKEN]
+    spoken = [None, line1_sp, line2, VENUE_TOPICS[t4][0], LINE4, PLAYER_TOPICS[t5][0], LINE6_SPOKEN]
     shown = [None, line1, line2, VENUE_TOPICS[t4][1], LINE4, PLAYER_TOPICS[t5][1], LINE6_SHOWN]
     print(f"[内容] {v} {n}R({info['grade'] or 'グレードなし'}) / 場の話={t4} / 選手の話={t5}")
     voice = V.Voice(a.voice, a.voicevox_url, date=a.date)
     print(f"[caster] {voice.caster['id']}(声: {voice.caster['voice']})")
-    total, master, sr, beats = BT.assemble(spoken, voice, float(os.environ.get("INTO_GAIN") or 1.0) if os.environ.get("MATCH_AOYAMA", "1") == "1" else 0.0)
+    total, master, sr, beats = BT.assemble(spoken, voice, float(os.environ.get("INTO_GAIN") or 1.0) if os.environ.get("MATCH_AOYAMA", "1") == "1" else 0.0, logo_sec=NEWS_LOGO_SEC)
     for b, s in zip(beats, shown):
         if s: b["text"] = s
     print(f"[長さ] {total:.1f}秒")
@@ -99,7 +104,20 @@ def main():
     images = []
     def img(k):
         images.append(os.path.relpath(shots[k], a.out)); return len(images) - 1
-    plan = {1: [("top", 0.0), ("grid", 0.45)], 2: [("members", 0.0)], 3: [(VENUE_TOPICS[t4][2], 0.0)],
+    # 場の一覧に切り替える位置: 3文それぞれを読む長さの比から、「○○ボート」を言い始める位置を求める
+    def _dur(q):
+        d = 0.0
+        for ap in q["accent_phrases"]:
+            for m in ap["moras"]:
+                d += (m.get("consonant_length") or 0.0) + (m.get("vowel_length") or 0.0)
+            if ap.get("pause_mora"): d += ap["pause_mora"]["vowel_length"]
+        return d
+    ds = [_dur(voice.synth(x)[1]) for x in (seg1, seg2_sp, seg3)]
+    b1 = beats[1]
+    at_grid = (b1["audioOffset"] + b1["audioLen"] * (ds[0] + ds[1]) / (sum(ds) or 1.0)) / b1["dur"]
+    at_grid = min(max(at_grid, 0.3), 0.95)
+    print(f"[切り替え] トップ画面 {at_grid * b1['dur']:.1f}秒まで(場面 {b1['dur']:.1f}秒の {at_grid * 100:.0f}%)")
+    plan = {1: [("top", 0.0), ("grid", at_grid)], 2: [("members", 0.0)], 3: [(VENUE_TOPICS[t4][2], 0.0)],
             4: [("kg_1", 0.0), ("kg_12", 0.5)], 5: [(PLAYER_TOPICS[t5][2], 0.0)], 6: [("grid", 0.0)]}
     for bi in range(1, len(beats)):
         beats[bi]["frames"] = [{"img": img(k), "at": at} for k, at in plan[bi]]

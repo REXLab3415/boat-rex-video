@@ -61,12 +61,13 @@ def synth_match(voice, text, gain, log):
     return voice.synth(text, gain=gain, log=log)
 
 
-def assemble(texts, voice, gain=1.0, log=None):
+def assemble(texts, voice, gain=1.0, log=None, logo_sec=None):
     log = log if log is not None else []
+    logo_len = LOGO_SEC if logo_sec is None else logo_sec        # ロゴの長さ(指定がなければ従来どおり)
     cursor, sr_ref, chunks, beats = 0.0, None, [], []
     for i, tx in enumerate(texts):
         if tx is None:
-            beats.append({"text": "", "start": cursor, "dur": LOGO_SEC, "audioLen": 0, "audioOffset": 0, "visemes": []}); cursor += LOGO_SEC; continue
+            beats.append({"text": "", "start": cursor, "dur": logo_len, "audioLen": 0, "audioOffset": 0, "visemes": []}); cursor += logo_len; continue
         wav, q = synth_match(voice, tx, gain, log)
         a, sr = V.read_wav(wav); sr_ref = sr_ref or sr
         alen = len(a) / sr
