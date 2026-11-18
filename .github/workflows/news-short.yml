@@ -1,0 +1,146 @@
+name: 出走表サイト紹介ショート(毎日の自動投稿)
+
+# 毎日、日本時間 9:00・10:30・12:00 に動く(投稿済みなら、あとの回は飛ばす)。
+# 出走表サイト(https://boat-rex-pro.com/)の今日の画面を自動操作で撮り(グレードが一番高い場の最終レース)、
+# キャスターの声つきのショートを作って、YouTubeに投稿する。公開の設定と時刻の決まりは、ほかの動画と同じ(youtube_privacy.txt)。
+# サイトの更新(日本時間7:00ごろ)より前に動いて、今日の出走表がまだ出ていないときは、投稿せずに赤で止まる(次の回でやり直す)。
+# 手動で動かしても、同じように投稿する(音声なし dummy のときだけ、投稿しない)。
+on:
+  schedule:
+    - cron: "0 0 * * *"
+    - cron: "30 1 * * *"
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "今日の分を、投稿済みでも、もう一度上げる(直したあとの上げ直し用)"
+        required: false
+        type: boolean
+        default: false
+      caster:
+        description: "キャスターを固定する(c0〜c3)。空欄なら、日付で決まる人"
+        required: false
+        default: ""
+      into_gain:
+        description: "抑揚の強さ(1.0が標準)"
+        required: false
+        default: "1.0"
+      voice:
+        description: "voicevox=声つき / dummy=音声なし(早い。投稿はしない)"
+        required: true
+        type: choice
+        options: [voicevox, dummy]
+        default: voicevox
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-short
+  cancel-in-progress: false
+
+jobs:
+  news-short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 公開側(boat-rex-video)を取得
+        uses: actions/checkout@v4
+        with:
+          path: pub
+
+      - name: 日付と、投稿済みかを確認
+        id: d
+        run: |
+          D="$(TZ=Asia/Tokyo date +%Y%m%d)"
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          POST="true"
+          if [ "${{ github.event.inputs.voice }}" = "dummy" ]; then POST="false"; fi
+          echo "post=$POST" >> "$GITHUB_OUTPUT"
+          if [ "$POST" = "true" ] && [ "${{ github.event.inputs.force }}" != "true" ] && [ -f "pub/uploaded/${D}_newsshort.json" ]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${D} の出走表サイト紹介ショートは投稿済みです。今回は何もしません"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.d.outputs.done != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(ffmpeg・日本語フォント・Playwright)
+        if: steps.d.outputs.done != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          pip install playwright numpy pillow
+          playwright install --with-deps chromium
+
+      - name: VOICEVOXエンジンを起動(Docker)
+        if: steps.d.outputs.done != 'true' && github.event.inputs.voice != 'dummy'
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then echo "VOICEVOX ready"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::VOICEVOXエンジンが起動しませんでした"; docker logs voicevox || true; exit 1
+
+      - name: 出走表サイト紹介ショートを作る(本物のデータ)
+        if: steps.d.outputs.done != 'true'
+        working-directory: pub
+        env:
+          CASTER_FORCE: ${{ github.event.inputs.caster }}
+          VOICE_INPUT: ${{ github.event.inputs.voice || 'voicevox' }}
+          INTO_GAIN: ${{ github.event.inputs.into_gain || '1.0' }}
+          MATCH_AOYAMA: "1"
+          DATE_ARG: ${{ steps.d.outputs.date }}
+        run: |
+          mkdir -p out
+          python build_news_short.py --live --date "$DATE_ARG" --voice "$VOICE_INPUT" --out out 2>&1 | tee out/news_short_log.txt
+
+      - name: 保存(実行ページの下の Artifacts からダウンロード)
+        if: ${{ !cancelled() && steps.d.outputs.done != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-short-${{ steps.d.outputs.date }}
+          path: |
+            pub/out/news_short_*.mp4
+            pub/out/news_short_info.json
+            pub/out/news_short_meta.json
+            pub/out/news_short_log.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: YouTubeに投稿する
+        if: steps.d.outputs.done != 'true' && steps.d.outputs.post == 'true'
+        working-directory: pub
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          pip install google-api-python-client google-auth requests
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
+          python upload_news_short.py --date "$DATE_ARG" --out out $EXTRA
+
+      - name: 投稿の記録を保存(同じ日の二重投稿と、同じ内容の重なりを防ぐ)
+        if: steps.d.outputs.done != 'true' && steps.d.outputs.post == 'true'
+        working-directory: pub
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "出走表サイト紹介ショート投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
+            exit 1
+          fi
