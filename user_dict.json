@@ -132,5 +132,11 @@
   "pronunciation": "コノジョウ",
   "accent_type": 0,
   "check": "この場の特徴が、文章で説明されています。"
+ },
+ {
+  "surface": "決まり手",
+  "pronunciation": "キマリテ",
+  "accent_type": 0,
+  "check": "この場で多い決まり手が、ランキングでわかります。"
  }
 ]
