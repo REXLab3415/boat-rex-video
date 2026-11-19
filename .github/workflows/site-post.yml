@@ -1,0 +1,126 @@
+name: 出走表サイトの紹介を投稿(Instagramは自動・Xはメール)
+
+# 毎日、日本時間 9:30・11:00・12:30 に動く(送信済みなら、あとの回は飛ばす)。
+# 出走表サイト(https://boat-rex-pro.com/)の今日のトップ画面を撮って、
+#   Instagram … トップ画面の画像+固定の説明文を、自動で投稿
+#   X         … 固定の投稿文+Xを開くリンクを、メールで送る(YouTubeサイト紹介ショートが選んだレースの出走表ページの画像つき)
+# サイトの更新(日本時間7:00ごろ)より前で、今日の日付がトップ画面にないときは、何も送らず赤で止まる(次の回でやり直す)。
+# 手動で動かしたとき: 日付かサイトのURLを入れると、撮影と確認だけ(投稿もメールもしない)。何も入れなければ、今日の分を送る。
+on:
+  schedule:
+    - cron: "30 0 * * *"
+    - cron: "0 2 * * *"
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "確認用: 日付(例 20261118)。入れたときは、撮影と確認だけで、投稿もメールもしない"
+        required: false
+        default: ""
+      base:
+        description: "確認用: サイトのURL(例 https://boat-rex-pro.com/2026-11-18/)。入れたときも、投稿もメールもしない"
+        required: false
+        default: ""
+      force:
+        description: "今日の分を、送信済みでも、もう一度送る(Instagramもメールも)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-post
+  cancel-in-progress: false
+
+jobs:
+  site-post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 日付と、送信済みかを確認
+        id: d
+        env:
+          INPUT_DATE: ${{ github.event.inputs.date }}
+          INPUT_BASE: ${{ github.event.inputs.base }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          D="$(TZ=Asia/Tokyo date +%Y%m%d)"
+          CHECK="false"
+          if [ -n "$INPUT_DATE" ]; then D="$INPUT_DATE"; CHECK="true"; fi
+          if [ -n "$INPUT_BASE" ]; then CHECK="true"; fi
+          if ! echo "$D" | grep -Eq '^[0-9]{8}$' || ! date -d "$D" +%Y%m%d > /dev/null 2>&1; then
+            echo "::error::日付の形式が正しくありません。20261118 のように入力してください(入力: $D)"; exit 1
+          fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          echo "check=$CHECK" >> "$GITHUB_OUTPUT"
+          if [ "$CHECK" = "false" ] && [ "$FORCE" != "true" ] && [ -f "uploaded/${D}_site_ig.json" ] && [ -f "uploaded/${D}_site_mail.json" ]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${D} は、Instagramもメールも送信済みです。今回は何もしません"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.d.outputs.done != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: 必要なものを入れる(日本語フォント・Playwright)
+        if: steps.d.outputs.done != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          pip install playwright pillow
+          playwright install --with-deps chromium
+
+      - name: サイトの画面を撮って、Instagramに投稿・Xのメールを送る
+        id: run
+        if: steps.d.outputs.done != 'true'
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_ARG: ${{ steps.d.outputs.date }}
+          CHECK: ${{ steps.d.outputs.check }}
+          BASE_INPUT: ${{ github.event.inputs.base }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          mkdir -p out
+          EXTRA=""
+          if [ "$CHECK" = "true" ]; then EXTRA="--check"; fi
+          if [ "$FORCE" = "true" ]; then EXTRA="$EXTRA --force"; fi
+          python site_post.py --date "$DATE_ARG" --base "${BASE_INPUT:-https://boat-rex-pro.com/}" --out out $EXTRA
+
+      - name: 保存(実行ページの下の Artifacts からダウンロード)
+        if: ${{ !cancelled() && steps.d.outputs.done != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-post-${{ steps.d.outputs.date }}
+          path: |
+            out/site_top_*.jpg
+            out/race_*.jpg
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 送信の記録を保存(同じ日の二重投稿を防ぐ)
+        if: ${{ !cancelled() && steps.d.outputs.done != 'true' && steps.d.outputs.check != 'true' }}
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "出走表サイト紹介の投稿の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::送信の記録を保存できませんでした。同じ日をもう一度動かすと、二重に送られます"
+            exit 1
+          fi
