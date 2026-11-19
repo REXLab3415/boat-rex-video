@@ -3,10 +3,12 @@
   python x_post_mail.py --date 20261104            → 送る(同じ日は、1回だけ。送信記録 uploaded/日付_mail.json)
   python x_post_mail.py --date 20261104 --force    → 送信済みでも、もう一度送る
   python x_post_mail.py --date 20261104 --dry-run  → 送らずに、投稿文とリンクを画面に出すだけ
+  python x_post_mail.py --wait-public              → 動画が公開されて、サムネの画像が出る状態になってから送る(毎朝の自動実行用)。
+                                                     まだなら、送らずに終わる(あとの回でやり直す)。--final のときは、まだなら赤で終わる
 ツールの買い目が的中した日だけ送る(的中0件の日は、何もしない)。
 失敗しても、呼ぶ側で続ける(動画の投稿は止めない)。
 """
-import argparse, glob, json, os, re, smtplib, sys, urllib.parse
+import argparse, glob, json, os, re, smtplib, sys, urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -42,6 +44,38 @@ def video_url(date):
     return f"https://youtu.be/{vid}" if vid else None
 
 
+def _http(url, method="GET", timeout=20):
+    """(状態の番号, 本文のはじめの部分)。通信できなかったときは (None, エラー文)"""
+    req = urllib.request.Request(url, method=method, headers={"User-Agent": "Mozilla/5.0 (compatible; Twitterbot/1.0)", "Accept-Language": "ja"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, (r.read(400000).decode("utf-8", "replace") if method == "GET" else "")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def video_ready(url):
+    """動画が公開されていて、Xのカードに出るサムネの画像があるか。
+    (True/False/None, 理由)。None は「通信できず、確かめられなかった」(止めずに送る)"""
+    vid = url.rsplit("/", 1)[-1]
+    st, body = _http("https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(f"https://www.youtube.com/watch?v={vid}", safe=""))
+    if st is None:
+        return None, f"公開の確認ができませんでした({body})"
+    if st != 200:
+        return False, f"動画がまだ公開されていません(YouTubeの応答 {st})"
+    st, html = _http(f"https://www.youtube.com/watch?v={vid}")      # Xが読む、動画のページ。そこに書かれたサムネの画像を調べる
+    m = re.search(r'<meta property="og:image" content="([^"]+)"', html) if st == 200 else None
+    thumb = m.group(1) if m else f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
+    st2, _ = _http(thumb, method="HEAD")
+    if st2 == 200:
+        return True, "公開済み・サムネの画像あり"
+    if st2 is None:
+        return None, "サムネの画像の確認ができませんでした"
+    return False, f"サムネの画像がまだありません(応答 {st2})"
+
+
 def build_post(date, day):
     races = day["races"]
     hits = [r for r in races if r["hit"]]
@@ -61,6 +95,8 @@ def main():
     ap.add_argument("--date", default="")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--wait-public", action="store_true", help="動画が公開されて、サムネが出る状態になってから送る")
+    ap.add_argument("--final", action="store_true", help="--wait-public のとき、まだなら赤で終わる(その日の最後の回)")
     a = ap.parse_args()
     date = a.date or latest_date()
     if not date:
@@ -78,6 +114,18 @@ def main():
         return 0
 
     url = video_url(date)
+    if a.wait_public and not a.dry_run:
+        if not url:
+            ok, why = False, f"動画の記録(uploaded/{date}.json)がまだありません。動画を上げている途中かもしれません"
+        else:
+            ok, why = video_ready(url)
+        if ok is False:
+            if a.final:
+                print(f"::error title=Xのメールを送れませんでした::{date}: {why}。今日の最後の確認でも、準備ができていません。動画の公開と、Actionsの動画の実行を確認してください")
+                return 1
+            print(f"::notice::{date}: {why}。送らずに、次の確認まで待ちます")
+            return 0
+        print(f"[公開確認] {why}")
     text = post["text"] + f"\n{HASHTAGS}" + (f"\n{url}" if url else "")
     wt = x_weight(post["text"] + "\n" + HASHTAGS) + (1 + 23 if url else 0)   # URLは、Xでは23文字として数える
     print(f"[文字数] {wt} / 280")
