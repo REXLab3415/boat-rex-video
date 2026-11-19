@@ -1,0 +1,83 @@
+name: Xの投稿文をメールで送る(毎朝・動画の公開を確認してから)
+
+# 答え合わせ動画のXの投稿文を、REXにメールで送る(投稿はREXが、メールのリンクを押して手でする)。
+# 夜に上げた動画は、朝6:00に公開される。公開前にメールが届くと、Xにサムネが出ないため、
+# 朝6:10から30分おきに「動画が公開されて、サムネの画像が出る状態か」を確認して、なった回ですぐ送る(9:40まで)。
+# 送信済みの日・ツールの的中が0件の日は、何もしない。9:40の回でもまだなら、メールは送らず、赤で知らせる。
+# GitHubの予定の実行は、数十分遅れることがある。
+# 手動で動かすと、日付を指定して送り直せる(動画の公開は確認しない)。試験と送り直しは、これまでどおり x_post_mail.yml でもできる。
+on:
+  schedule:
+    - cron: "10,40 21-23 * * *"
+    - cron: "10 0 * * *"
+    - cron: "40 0 * * *"      # 日本時間9:40。この回が最後
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "手動用: 日付(YYYY-MM-DD)。空欄なら、days の中の、いちばん新しい日。入れたときは、公開の確認をせずに送る"
+        required: false
+        default: ""
+      force:
+        description: "送信済みでも、もう一度送る"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x-mail
+  cancel-in-progress: false
+
+jobs:
+  mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 投稿文を作って、動画の公開を確認して、メールで送る
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          DATE_INPUT: ${{ github.event.inputs.date }}
+          FORCE: ${{ github.event.inputs.force }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          DATE_ARG=""
+          EXTRA=""
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-04 のように入力してください(入力: $DATE_INPUT)"; exit 1
+            fi
+            DATE_ARG="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          elif [ -z "$SCHEDULE" ]; then
+            :     # 手動で日付なし: いちばん新しい日。公開の確認はしない
+          else
+            EXTRA="--wait-public"
+            if [ "$SCHEDULE" = "40 0 * * *" ]; then EXTRA="$EXTRA --final"; fi    # 日本時間9:40の回(この回で最後)
+          fi
+          if [ "$FORCE" = "true" ]; then EXTRA="$EXTRA --force"; fi
+          python x_post_mail.py --date "$DATE_ARG" $EXTRA
+
+      - name: 送信の記録を保存(同じ日の二重送信を防ぐ)
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "Xのメールの送信の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::送信の記録を保存できませんでした。次の回で、同じメールがもう一度送られます"
+            exit 1
+          fi

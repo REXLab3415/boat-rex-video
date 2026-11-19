@@ -1,16 +1,17 @@
 name: 出走表サイトの紹介を投稿(Instagramは自動・Xはメール)
 
-# 毎日、日本時間 9:30・11:00・12:30 に動く(送信済みなら、あとの回は飛ばす)。
-# 出走表サイト(https://boat-rex-pro.com/)の今日のトップ画面を撮って、
-#   Instagram … トップ画面の画像+固定の説明文を、自動で投稿
-#   X         … 固定の投稿文+Xを開くリンクを、メールで送る(YouTubeサイト紹介ショートが選んだレースの出走表ページの画像つき)
-# サイトの更新(日本時間7:00ごろ)より前で、今日の日付がトップ画面にないときは、何も送らず赤で止まる(次の回でやり直す)。
+# 毎朝、日本時間 7:15 から30分おきに(10:15まで)動く。サイト(https://boat-rex-pro.com/)が今日の分に更新されたら、すぐ送る。
+#   Instagram … サイトのトップ画面(ページ全体)の画像+固定の説明文を、自動で投稿
+#   X         … 固定の投稿文+Xを開くリンクを、メールで送る。サイトに今日のリンク用の画像(og:image)が公開されてから送る
+#                (YouTubeサイト紹介ショートが選んだレースの出走表ページの画像は、確認用にメールへ付ける)
+# サイトの更新前・リンク用の画像がまだのときは、何も送らず、次の回まで待つ。10:15の回でもまだなら、赤で知らせる。
+# 送信済みの日は、あとの回を飛ばす(二重投稿しない)。GitHubの予定の実行は、数十分遅れることがある。
 # 手動で動かしたとき: 日付かサイトのURLを入れると、撮影と確認だけ(投稿もメールもしない)。何も入れなければ、今日の分を送る。
 on:
   schedule:
-    - cron: "30 0 * * *"
-    - cron: "0 2 * * *"
-    - cron: "30 3 * * *"
+    - cron: "15,45 22-23 * * *"
+    - cron: "15,45 0 * * *"
+    - cron: "15 1 * * *"      # 日本時間10:15。この回が最後
   workflow_dispatch:
     inputs:
       date:
@@ -91,10 +92,12 @@ jobs:
           CHECK: ${{ steps.d.outputs.check }}
           BASE_INPUT: ${{ github.event.inputs.base }}
           FORCE: ${{ github.event.inputs.force }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
           mkdir -p out
           EXTRA=""
           if [ "$CHECK" = "true" ]; then EXTRA="--check"; fi
+          if [ "$SCHEDULE" = "15 1 * * *" ]; then EXTRA="$EXTRA --final"; fi      # 日本時間10:15の回(この回で最後)
           if [ "$FORCE" = "true" ]; then EXTRA="$EXTRA --force"; fi
           python site_post.py --date "$DATE_ARG" --base "${BASE_INPUT:-https://boat-rex-pro.com/}" --out out $EXTRA
 

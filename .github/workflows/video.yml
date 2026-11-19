@@ -176,7 +176,7 @@ jobs:
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python upload_short.py --date "$DATE_ARG" --out out $EXTRA
 
-      # ---- Xの投稿文を作って、メールで送る(失敗しても、動画は成功のまま)。ツールの的中が0件の日は送らない ----
+      # ---- Xの投稿文を作って、メールで送る(失敗しても、動画は成功のまま)。ツールの的中が0件の日は送らない。夜のあいだは送らない(朝の x-mail.yml が送る) ----
       - name: Xの投稿文をメールで送る(失敗しても、動画は成功のまま)
         if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' && github.event.inputs.caster == '' }}
         continue-on-error: true
@@ -187,6 +187,13 @@ jobs:
           DATE_ARG: ${{ steps.d.outputs.date }}
           FORCE: ${{ github.event.inputs.force }}
         run: |
+          # 夜(日本時間20:00〜翌6:00)に上げた動画は、朝6:00の予約公開。公開前にメールが届くと、Xにサムネが出ないため、
+          # 夜のあいだは送らない。朝6:10から動く x-mail.yml が、動画の公開とサムネの画像を確認してから送る。
+          H=$((10#$(TZ=Asia/Tokyo date +%H)))
+          if [ "$H" -ge 20 ] || [ "$H" -lt 6 ]; then
+            echo "::notice::夜のあいだは、Xのメールを送りません。朝6:10から動く「Xの投稿文をメールで送る(毎朝)」が、動画の公開を確認してから送ります"
+            exit 0
+          fi
           EXTRA=""
           if [ "$FORCE" = "true" ]; then EXTRA="--force"; fi
           python x_post_mail.py --date "$DATE_ARG" $EXTRA
