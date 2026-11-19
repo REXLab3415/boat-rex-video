@@ -26,9 +26,14 @@ import news_capture as NC        # noqa: E402  (サイト紹介ショートと�
 SITE = "https://boat-rex-pro.com/"
 IG_W, IG_H = 1080, 1350                      # Instagramの画像は、縦長が4:5まで。トップ画面は縦に長いので、ページ全体を縮めて、左右に余白を足して4:5にする
 
-X_TEXT = ("BOAT REX PRO オリジナル出走表(無料・毎朝更新)\n"
-          "全場の出走表を、過去1年の独自データで。モーター気配・節間成績・ST・コース別1着率・決まり手・3連単の出目まで見られます。\n"
-          "#ボートレース #競艇\n" + SITE)
+def x_text(date):
+    """Xの投稿文。URLの後ろに日付の印(?d=日付)を付けて、毎日別のURLにする(Xが前の日のカードを覚えていても、関係なくなる。表示は同じ)"""
+    return ("BOAT REX PRO オリジナル出走表(無料・毎朝更新)\n"
+            "全場の出走表を、過去1年の独自データで。モーター気配・節間成績・ST・コース別1着率・決まり手・3連単の出目まで見られます。\n"
+            "#ボートレース #競艇\n" + SITE + f"?d={date}")
+
+
+X_TEXT = x_text("00000000")      # 文字数の確認用
 IG_TEXT = ("BOAT REX PRO オリジナル出走表(無料・毎朝更新)\n"
            "開催している全場を、場ごとの新聞にしました。公式の成績データから、過去1年の実績を独自に計算しています。\n\n"
            "・勝率ランク(SSS/SS/S)と平均STランク\n"
@@ -41,6 +46,25 @@ IG_TEXT = ("BOAT REX PRO オリジナル出走表(無料・毎朝更新)\n"
            + SITE + "\n"
            "的中・収益を保証するものではありません。\n"
            "#ボートレース #競艇 #出走表")
+
+
+class NotReady(RuntimeError):
+    """サイトの更新前など、「今は無理だが、あとの回でできる」状態"""
+
+
+def og_image_ok(ctx, url, date):
+    """Xのカードに出す画像(og:image)が、今日の分として公開されているか。(True/False, 理由)"""
+    if f"og_{date}" not in url:
+        return False, f"og:image が今日の画像ではありません({url})"
+    try:
+        r = ctx.request.get(url, timeout=30000)
+        if r.status != 200:
+            return False, f"og:image の画像がまだ公開されていません(応答 {r.status}: {url})"
+        if "image" not in (r.headers.get("content-type") or "") or len(r.body()) < 5000:
+            return False, f"og:image の中身が画像ではありません({url})"
+        return True, "リンク用の画像あり"
+    except Exception as e:
+        return False, f"og:image の確認に失敗しました({type(e).__name__}: {e})"
 
 
 def capture(base, out_dir, date, check_images=True, log=print):
@@ -67,7 +91,7 @@ def capture(base, out_dir, date, check_images=True, log=print):
         pg.wait_for_function("document.fonts.ready.then(()=>true)")
         top_txt = pg.inner_text("body")
         if f"{mm}月{dd}日" not in top_txt:
-            raise RuntimeError(f"今日({mm}月{dd}日)の出走表ではありません(トップ画面に日付がありません)。サイトの更新前かもしれません")
+            raise NotReady(f"今日({mm}月{dd}日)の出走表ではありません(トップ画面に日付がありません)。サイトの更新前かもしれません")
         if check_images:
             ok = False
             for _ in range(20):          # 画像の読み込みを、最長20秒待つ
@@ -77,8 +101,13 @@ def capture(base, out_dir, date, check_images=True, log=print):
                     break
                 pg.wait_for_timeout(1000)
             if not ok:
-                raise RuntimeError("トップ画面の画像が表示されません: " + " / ".join(bad[:3]))
+                raise NotReady("トップ画面の画像が表示されません: " + " / ".join(bad[:3]))
         pg.wait_for_timeout(800)
+        og_url = pg.evaluate("(document.querySelector('meta[property=\"og:image\"]')||{}).content||''")
+        if not og_url:
+            res["og"] = (False, "サイトのトップに、リンク用の画像の設定(og:image)がまだありません。サイトの更新が、この機能の前の版のままかもしれません")
+        else:
+            res["og"] = og_image_ok(pg.context, og_url, date)
         cards = pg.evaluate("""[...document.querySelectorAll('a.vc')].map(a=>({href:a.getAttribute('href'),
             grade:((a.querySelector('.bg')||{}).textContent||'').trim(), name:a.querySelector('.nm').textContent.trim()}))""")
         if not cards:
@@ -159,17 +188,17 @@ def send_mail(date, text, race_jpg, info):
     if not user or not pw:
         raise RuntimeError("GMAIL_APP_PASSWORD(または MAIL_USER)が登録されていないため、メールを送れません")
     m, d = int(date[4:6]), int(date[6:8])
-    wt = X.x_weight(text.replace(SITE, "")) + 23
+    wt = X.x_weight(text.replace(f"{SITE}?d={date}", "")) + 23
     intent = "https://x.com/intent/tweet?text=" + urllib.parse.quote(text, safe="")
     subject = f"【X投稿】{m}/{d} 出走表サイトの紹介(画像つき)"
     cap = f"{info['venue']}{info['no']}R" + (f"({info['grade']})" if info.get("grade") else "")
-    plain = ("下のリンクを押すと、文章が入った状態でXの投稿画面が開きます。\n"
-             f"画像は、このメールに付いている「{cap}の出走表」です。保存して、Xの投稿画面で画像を追加してください。\n"
+    plain = ("下のリンクを押すと、文章が入った状態でXの投稿画面が開きます。文章の最後のURLから、画像つきのカードが出ます。\n"
+             f"(このメールに付いている「{cap}の出走表」の画像は、確認用です。投稿には使わなくて大丈夫です)\n"
              "開かないとき・文字が崩れるときは、下の「投稿文」をコピーして、Xに貼り付けてください。\n"
              f"\n▼Xの投稿画面を開く\n{intent}\n\n▼投稿文(コピー用)\n{text}\n")
     esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    html = ("<p>下のリンクを押すと、文章が入った状態でXの投稿画面が開きます。<br>"
-            f"画像は、このメールに付いている「{cap}の出走表」です。保存して、Xの投稿画面で画像を追加してください。<br>"
+    html = ("<p>下のリンクを押すと、文章が入った状態でXの投稿画面が開きます。文章の最後のURLから、画像つきのカードが出ます。<br>"
+            f"(このメールに付いている「{cap}の出走表」の画像は、確認用です。投稿には使わなくて大丈夫です)<br>"
             "開かないとき・文字が崩れるときは、下の「投稿文」をコピーして、Xに貼り付けてください。</p>"
             f"<p><a href=\"{intent}\" style=\"font-size:20px;font-weight:bold\">▶ Xの投稿画面を開く</a></p>"
             f"<p>▼投稿文(コピー用)</p><p style=\"white-space:pre-wrap;border:1px solid #ccc;padding:10px\">{esc(text)}</p>")
@@ -205,6 +234,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(HERE, "out"))
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--check", action="store_true", help="撮影と文の確認だけ(投稿もメールもしない)")
+    ap.add_argument("--final", action="store_true", help="その日の最後の回。まだ送れていなければ、赤で終わる")
     ap.add_argument("--skip-image-check", action="store_true", help="試験用: 画像の読み込み確認を飛ばす")
     a = ap.parse_args()
     date = a.date or datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
@@ -215,17 +245,32 @@ def main():
     if not a.check and not need_ig and not need_mail:
         print(f"::notice::{date} は、Instagramもメールも送信済みです。何もしません(もう一度送るときは force にチェックを入れてください)")
         return 0
-    print(f"[文字数] X {X.x_weight(X_TEXT.replace(SITE, '')) + 23} / 280 ・ Instagram {len(IG_TEXT)} / 2200")
+    text_x = x_text(date)
+    print(f"[文字数] X {X.x_weight(text_x.replace(SITE + '?d=' + date, '')) + 23} / 280 ・ Instagram {len(IG_TEXT)} / 2200")
+
+    def waiting(msg):
+        """「いまは無理で、あとの回ならできる」とき。最後の回なら赤、そうでなければ、送らずに終わる(黄色の注意)"""
+        if a.final:
+            print(f"::error title=今日の分を送れませんでした::{msg}。今日の最後の確認でも、準備ができていません")
+            return 1
+        print(f"::notice::{msg}。送らずに、次の確認まで待ちます")
+        return 0
+
     try:
         r = capture(a.base, a.out, date, check_images=not a.skip_image_check)
+    except NotReady as e:
+        return waiting(str(e))
     except Exception as e:
         print(f"::error title=サイトの画面を撮れませんでした::{e}")
         return 1
+    og_ok, og_why = r.get("og", (False, "og の確認が行われませんでした"))
+    print(f"[リンク用の画像] {'OK' if og_ok else 'まだ'}: {og_why}")
     if a.check:
         print("[確認のみ] 投稿もメールもしません。画像は out に保存しました")
         return 0
     rc = 0
-    # ---- Instagram ----
+    pending = ""
+    # ---- Instagram(サイトの画面が撮れていれば、すぐ投稿する) ----
     if need_ig:
         try:
             token = os.environ.get("IG_ACCESS_TOKEN", "").strip()
@@ -239,15 +284,20 @@ def main():
         except Exception as e:
             print(f"::error title=Instagramに投稿できませんでした::{e}")
             rc = 1
-    # ---- Xのメール ----
+    # ---- Xのメール(Xのカードに出す画像が、サイトに公開されてから送る) ----
     if need_mail:
-        try:
-            to, subject, wt = send_mail(date, X_TEXT, r["race"], r["info"])
-            record(rec_mail, {"to": to, "subject": subject, "race": r["info"]})
-            print(f"[mail] 送りました: {to}  件名={subject}")
-        except Exception as e:
-            print(f"::error title=メールを送れませんでした::{e}")
-            rc = 1
+        if not og_ok:
+            pending = f"Xのメールは、まだ送れません: {og_why}"
+        else:
+            try:
+                to, subject, wt = send_mail(date, text_x, r["race"], r["info"])
+                record(rec_mail, {"to": to, "subject": subject, "race": r["info"]})
+                print(f"[mail] 送りました: {to}  件名={subject}")
+            except Exception as e:
+                print(f"::error title=メールを送れませんでした::{e}")
+                rc = 1
+    if pending:
+        return max(rc, waiting(pending))
     return rc
 
 
