@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """出走表サイト(https://boat-rex-pro.com/)の今日のトップ画面を撮って、固定の説明文といっしょに送る。
-  Instagram … トップ画面(上から4:5の範囲)の画像を、自動で投稿する
+  Instagram … トップ画面(ページ全体)の画像を、自動で投稿する
   X         … 固定の投稿文+「Xの投稿画面を開くリンク」を、メールで送る(投稿はREXが手でタップ)。
-              メールには、YouTubeショートが選んだレースの出走表ページの画像を付ける
+              メールには、YouTubeショートが選んだレースの出走表ページ(ページ全体)の画像を付ける
   python site_post.py --date 20261119 --out out                 → 今日の分を送る(同じ日は、Instagram・メールとも1回だけ)
   python site_post.py --date 20261119 --out out --force         → 送信済みでも、もう一度送る
   python site_post.py --date 20261118 --base https://boat-rex-pro.com/2026-11-18/ --out out --check
@@ -24,8 +24,7 @@ import instagram_reel as I       # noqa: E402  (Instagramへの投稿の部品)
 import news_capture as NC        # noqa: E402  (サイト紹介ショートと同じ「場」の選び方)
 
 SITE = "https://boat-rex-pro.com/"
-IG_W, IG_H = 1080, 1350                      # Instagramの画像は、縦長が4:5まで(トップ画面は縦に長すぎるので、上から切り出す)
-CROP_H = 1500                                # トップ画面(幅1200)の、上から1500pxが 4:5
+IG_W, IG_H = 1080, 1350                      # Instagramの画像は、縦長が4:5まで。トップ画面は縦に長いので、ページ全体を縮めて、左右に余白を足して4:5にする
 
 X_TEXT = ("BOAT REX PRO オリジナル出走表(無料・毎朝更新)\n"
           "全場の出走表を、過去1年の独自データで。モーター気配・節間成績・ST・コース別1着率・決まり手・3連単の出目まで見られます。\n"
@@ -85,16 +84,18 @@ def capture(base, out_dir, date, check_images=True, log=print):
         if not cards:
             raise RuntimeError("トップ画面に、開催中の場がありません(a.vc が0個)")
         card = NC.pick_card(cards, int(date))        # YouTubeのサイト紹介ショートと同じ選び方(グレードが一番高い場。同じなら日付で決める)
-        H = int(pg.evaluate("document.documentElement.scrollHeight"))
         raw = os.path.join(out_dir, "_top_full.png")
-        pg.screenshot(path=raw, clip={"x": 0, "y": 0, "width": 1200, "height": min(H, CROP_H)}, full_page=True)
+        pg.screenshot(path=raw, full_page=True)                       # ページ全体(上から下まで)
         im = Image.open(raw).convert("RGB")
-        if im.height < CROP_H:                       # 短い日は、下を白で足して4:5にする
-            canvas = Image.new("RGB", (1200, CROP_H), (255, 255, 255)); canvas.paste(im, (0, 0)); im = canvas
+        bg = im.getpixel((2, 2))                                      # 余白の色は、ページの背景と同じにする
+        sc = min(IG_W / im.width, IG_H / im.height)                   # 全体が4:5の枠に入る大きさ
+        small = im.resize((max(1, round(im.width * sc)), max(1, round(im.height * sc))), Image.LANCZOS)
+        canvas = Image.new("RGB", (IG_W, IG_H), bg)
+        canvas.paste(small, ((IG_W - small.width) // 2, (IG_H - small.height) // 2))
         top = os.path.join(out_dir, f"site_top_{date}.jpg")
-        im.resize((IG_W, IG_H), Image.LANCZOS).save(top, "JPEG", quality=92)
+        canvas.save(top, "JPEG", quality=92)
         res["top"] = top
-        log(f"[トップ] {len(cards)}場開催 / 画像 {IG_W}x{IG_H} / 選んだ場: {card['name']}({card['grade'] or 'グレードなし'})")
+        log(f"[トップ] {len(cards)}場開催 / ページ全体 {im.width}x{im.height} → 画像 {IG_W}x{IG_H}(縮尺 {sc:.2f}) / 選んだ場: {card['name']}({card['grade'] or 'グレードなし'})")
         pg.context.close()
 
         # ---- 選ばれた場の、最終レースの出走表ページ ----
@@ -113,10 +114,10 @@ def capture(base, out_dir, date, check_images=True, log=print):
         H2 = int(pg.evaluate("document.documentElement.scrollHeight")) + 40      # ページ全体が画面に入る高さにして、出走表の箱の座標で切り出す
         pg.set_viewport_size({"width": 1782, "height": min(H2, 6000)}); pg.wait_for_timeout(500)
         pg.evaluate("window.scrollTo(0,0)"); pg.wait_for_timeout(200)
-        box = pg.evaluate("""(n)=>{const b=document.querySelector('#rc'+n).getBoundingClientRect(); return {x:b.x+scrollX,y:b.y+scrollY,width:b.width,height:b.height}}""", n)
+        box = pg.evaluate("""(n)=>{const b=document.querySelector('#rc'+n).getBoundingClientRect(); return {width:b.width,height:b.height}}""", n)
         if box["width"] < 600 or box["height"] < 200:
             raise RuntimeError(f"{n}Rの出走表の大きさが想定と違います({box['width']:.0f}x{box['height']:.0f})")
-        pg.screenshot(path=rp, clip=box)
+        pg.screenshot(path=rp, full_page=True)                        # 場のページ全体(上から下まで)
         race = os.path.join(out_dir, f"race_{date}.jpg")
         Image.open(rp).convert("RGB").save(race, "JPEG", quality=90)
         res["race"] = race
