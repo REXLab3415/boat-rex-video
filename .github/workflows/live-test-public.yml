@@ -104,7 +104,7 @@ jobs:
 
       - name: 画面の計算に使うブラウザを用意
         run: |
-          pip install playwright
+          pip install pdfplumber playwright
           python -m playwright install --with-deps chromium
 
       - name: 直前情報を見張って、買い目を出す
