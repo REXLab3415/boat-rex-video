@@ -1,0 +1,180 @@
+name: 【テスト】直前買い目(公開側で実行・本番サイトには出さない)
+
+# boat-rex-video(公開側)で動かす。非公開側(boat-scenario-pro)のコードとデータを、鍵 BSP_TOKEN で取り出して処理し、
+# 結果(live_test/日付/races.json)は非公開側へ書き戻す。公開側の実行時間は無料。
+# 本番のサイト(boat-rex-news / boat-rex-pro.com)には、一切つながない。確認用の画面は、別の公開先(boat-rex-live-test)に作る。
+#
+# 手で動かしたときだけ動く(自動では動かない)。公式への取得は、official_fetch.fetch() だけを使う(3秒あけ・403で中止・429で中止)。
+# 動かせるのは、日本時間の 8:00〜23:30 の間だけ(朝の更新・0時の毎晩の検証と、公式への取得を重ねないため。23:30で必ず止まる)。
+# 1回の実行は、最大330分。1日(8時〜23時)を通すときは、午前・午後・夜の3回に分けて動かす(同じ日の結果は、足されていく)。
+#
+# 公開側の実行の記録は誰でも見られるため、買い目はログに出さない(出すのは、状態・取れた時刻・回数だけ)。
+#
+# 必要な秘密の値(boat-rex-video の Settings → Secrets and variables → Actions。どれも、すでに登録済み)
+#   BSP_TOKEN               : boat-scenario-pro を読み書きするための鍵
+#   CLOUDFLARE_API_TOKEN    : Cloudflare Pagesに公開するための鍵
+#   CLOUDFLARE_ACCOUNT_ID   : CloudflareのアカウントID
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "対象の日(YYYY-MM-DD。例 2026-11-22)。空欄なら、今日(日本時間)"
+        required: false
+        default: ""
+      minutes:
+        description: "動かす長さ(分)。空欄なら300。最大330。23:30になったら、この長さの途中でも止まる"
+        required: false
+        default: "300"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-test
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355      # 動かす最大330分 + 準備と保存と公開
+    steps:
+      - name: 必要な秘密の値がそろっているか確認
+        env:
+          T1: ${{ secrets.BSP_TOKEN }}
+          T2: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          T3: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ng=0
+          [ -z "$T1" ] && { echo "::error::秘密の値 BSP_TOKEN が登録されていません"; ng=1; }
+          [ -z "$T2" ] && { echo "::error::秘密の値 CLOUDFLARE_API_TOKEN が登録されていません"; ng=1; }
+          [ -z "$T3" ] && { echo "::error::秘密の値 CLOUDFLARE_ACCOUNT_ID が登録されていません"; ng=1; }
+          exit $ng
+
+      - name: 入力を確認
+        id: input
+        env:
+          DATE_INPUT: ${{ github.event.inputs.date }}
+          MIN_INPUT: ${{ github.event.inputs.minutes }}
+        run: |
+          D=""
+          if [ -n "$DATE_INPUT" ]; then
+            if ! echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || ! date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
+              echo "::error::日付の形式が正しくありません。2026-11-22 のように入力してください(入力: $DATE_INPUT)。公式にはアクセスしていません"
+              exit 1
+            fi
+            D="$(date -d "$DATE_INPUT" +%Y%m%d)"
+          fi
+          M="${MIN_INPUT:-300}"
+          if ! echo "$M" | grep -Eq '^[0-9]{1,3}$'; then
+            echo "::error::動かす長さは、数字(分)で入れてください(入力: $MIN_INPUT)。公式にはアクセスしていません"
+            exit 1
+          fi
+          echo "date=$D" >> "$GITHUB_OUTPUT"
+          echo "minutes=$M" >> "$GITHUB_OUTPUT"
+
+      - name: 非公開側(boat-scenario-pro)を取得
+        id: co
+        uses: actions/checkout@v4
+        with:
+          repository: REXLab3415/boat-scenario-pro
+          ref: main
+          token: ${{ secrets.BSP_TOKEN }}
+
+      - name: 追加したファイルがそろっているか確認
+        run: |
+          ng=0
+          for f in live_run.py live_picks.py live_test_page.html; do
+            [ -f "$f" ] || { echo "::error::boat-scenario-pro に $f がありません(アップロードを確認してください)"; ng=1; }
+          done
+          exit $ng
+
+      # 公式サイトに「拒否(403)」されたあとは、停止の目印(fetch_stopped.flag)が残る。目印がある間は、公式にアクセスしない
+      - name: 停止の目印を確認
+        run: |
+          if [ -f fetch_stopped.flag ]; then
+            echo "::error::公式サイトからの取得は停止中です(fetch_stopped.flag があります)。公式にはアクセスしません"
+            exit 1
+          fi
+
+      - name: Pythonをセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 画面の計算に使うブラウザを用意
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: 直前情報を見張って、買い目を出す
+        id: run
+        continue-on-error: true      # 途中で失敗しても、できた分の保存と公開は行う。最後の段で、失敗(赤)にする
+        env:
+          LIVE_DATE: ${{ steps.input.outputs.date }}
+          LIVE_MINUTES: ${{ steps.input.outputs.minutes }}
+        run: python live_run.py
+
+      - name: 結果を保存(live_test だけ。取得が止められたときは、停止の目印も)
+        id: save
+        if: always() && steps.co.outcome == 'success'
+        run: |
+          git config user.name "boat-scenario-pro-bot"
+          git config user.email "actions@users.noreply.github.com"
+          [ -d live_test ] && git add live_test/ 2>/dev/null || true
+          if [ -f fetch_stopped.flag ]; then git add fetch_stopped.flag; fi
+          if git diff --quiet --cached; then
+            echo "::notice::保存する内容はありません"
+          else
+            git commit -m "live test: $(date -u +'%Y-%m-%d %H:%M')"
+            git pull --rebase origin main || true
+            git push
+          fi
+
+      - name: 確認画面ができているか確認
+        id: site
+        if: always() && steps.co.outcome == 'success'
+        run: |
+          if [ -f live_site/index.html ] && [ -f live_site/data/index.json ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::確認画面が作られていないため、公開しません"
+          fi
+
+      - name: 確認画面の公開先を用意(すでにあれば、ここは失敗しても進みます)
+        if: always() && steps.site.outputs.ok == 'true'
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: pages project create boat-rex-live-test --production-branch=main
+
+      - name: 確認画面を公開(本番のサイトとは別のURL)
+        id: deploy
+        if: always() && steps.site.outputs.ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4"
+          command: pages deploy live_site --project-name=boat-rex-live-test --branch=main
+
+      - name: 確認画面のURLを表示
+        if: always() && steps.deploy.outcome == 'success'
+        run: |
+          {
+            echo "確認画面(本番とは別・検索には載りません):"
+            echo ""
+            echo "https://boat-rex-live-test.pages.dev"
+            echo ""
+            echo "公開の記録に出たURL: ${{ steps.deploy.outputs.deployment-url }}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 失敗していたら、失敗で終える
+        if: always() && steps.run.outcome == 'failure'
+        run: |
+          echo "::error::直前情報の見張り・買い目の計算で、失敗しました(上の「直前情報を見張って、買い目を出す」のログを見てください)。できた分の保存と公開は済んでいます"
+          exit 1
