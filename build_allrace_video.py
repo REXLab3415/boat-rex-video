@@ -14,6 +14,7 @@ import argparse
 import collections
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -28,6 +29,7 @@ import numpy as np  # noqa: E402
 BANDS = [("prob", "確率(高)"), ("hm", "確率(高)〜(中)"), ("bal", "確率(中)"), ("ml", "確率(中)〜(低)"), ("ev", "確率(低)")]
 MIN_DUR_RACE = 7.0
 SITE_URL = "https://boat-scenario-pro.sg34153415.workers.dev"
+WEB_URL = "https://boat-rex-pro.com/"      # 出走表サイトのトップ(概要欄・冒頭のモニターに出す画面)
 
 BASE_TAGS = ["競艇", "ボートレース", "ボートレース結果", "3連単", "払戻金", "結果", "答え合わせ", "万舟", "BOAT REX PRO"]
 MIN_CHAPTER = 10        # YouTubeのチャプターは、1つ10秒以上(これ未満があると、全体が無効になる)
@@ -94,7 +96,8 @@ def build_youtube_meta(date, day, races, beats, total, partial=False):
         lines += ["■チャプター"] + chapters + [""]
     lines += ["■ボートレース解析ツール BOAT REX PRO",
               "レースの展開を解析し、買い目を出すボートレース解析ツールです。この動画では、その買い目を実際の結果と照らし合わせています。",
-              f"公式サイト: {SITE_URL}", "",
+              f"解析ツール: {SITE_URL}",
+              f"WEBサイト：{WEB_URL}", "",
               "■クレジット", f"VOICEVOX:{CREDIT_NAME}", "",
               "#ボートレース #競艇 #3連単"]
     tags = list(BASE_TAGS)
@@ -191,7 +194,8 @@ def race_text(r, lead=""):
 
 def build_script(date, day, brand_reading):
     m, d = int(date[4:6]), int(date[6:])
-    beats = [{"type": "opening", "text": f"{m}月{d}日、解析ツール、{brand_reading}、答え合わせの時間です。"}]
+    beats = [{"type": "opening", "text": f"{m}月{d}日、解析ツール、{brand_reading}、答え合わせの時間です。"},
+             {"type": "site", "text": f"全ての買い目は、各レースの直前情報取得後、ボートレース競艇専門誌、{brand_reading}にて公開していますので是非そちらをご覧ください。"}]
     by_race = {(r["venue"], r["no"]): r for r in day["races"]}
     by_fail = {(f["venue"], f["no"]): f["kind"] for f in day.get("fails", [])}
     after_fail = False
@@ -216,10 +220,48 @@ def build_script(date, day, brand_reading):
     return beats
 
 
+def capture_site_top(out_dir, log=print, tries=2):
+    """出走表サイトのトップ画面を撮る(冒頭の2文目の間、モニターに出す)。
+    撮れなければ None を返す(動画は止めず、文字の画面で続ける)。
+    来場者の数字が増えないよう、数えるための通信は止めて撮る。画面の大きさは、モニターの表示欄(1240×472)に合わせる"""
+    import time
+    W, H = 1240, 472
+    path = os.path.join(out_dir, "site_top.png")
+    for k in range(1, tries + 1):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                br = p.chromium.launch(args=["--font-render-hinting=none"])
+                ctx = br.new_context(viewport={"width": W, "height": H}, device_scale_factor=2, locale="ja-JP", timezone_id="Asia/Tokyo")
+                pg = ctx.new_page()
+                pg.route("**/api/hit*", lambda r: r.fulfill(status=200, content_type="application/json", body='{"ok":true}'))
+                pg.route("**/*cloudflareinsights.com/**", lambda r: r.abort())
+                pg.goto(WEB_URL, wait_until="load", timeout=30000)
+                pg.wait_for_function("document.fonts.ready.then(()=>true)")
+                pg.wait_for_timeout(1500)
+                title = pg.title()
+                if "BOAT REX PRO" not in title:
+                    raise RuntimeError(f"サイトのトップ画面ではありません(タイトル: {title})")
+                os.makedirs(out_dir, exist_ok=True)
+                pg.screenshot(path=path, clip={"x": 0, "y": 0, "width": W, "height": H})
+                br.close()
+            log(f"[サイト] トップ画面を撮りました(タイトル: {title})")
+            return path, title
+        except Exception as e:
+            log(f"::warning title=サイトのトップ画面を撮れませんでした({k}回目)::{type(e).__name__}: {str(e)[:200]}")
+            time.sleep(3)
+    return None, ""
+
+
 def assemble(beats, voice, last_tail=1.4):
     cursor, sr_ref, chunks = 0.0, None, []
     for i, b in enumerate(beats):
         wav, q = voice.synth(b["text"])
+        if b["type"] == "site":
+            try:
+                print("[読み] 冒頭の2文目: " + "".join(mo["text"] for ap in q["accent_phrases"] for mo in ap["moras"]), flush=True)
+            except Exception:
+                pass
         a, sr = V.read_wav(wav)
         sr_ref = sr_ref or sr
         assert sr == sr_ref
@@ -228,7 +270,7 @@ def assemble(beats, voice, last_tail=1.4):
         b["audioOffset"] = V.LEAD
         b["visemes"], b["lipsync"] = V.pick_visemes(q, a, sr, alen, f'{i + 1}番目 {b["type"]}')
         tail = last_tail if i == len(beats) - 1 else V.TAIL
-        mind = {"opening": 5.0, "race": MIN_DUR_RACE, "fail": 5.0, "ending": 5.0}[b["type"]]
+        mind = {"opening": 5.0, "site": 5.0, "race": MIN_DUR_RACE, "fail": 5.0, "ending": 5.0}[b["type"]]
         b["dur"] = round(max(mind, V.LEAD + alen + tail), 3)
         b["start"] = round(cursor, 3)
         chunks.append((cursor + V.LEAD, a))
@@ -316,6 +358,12 @@ def main():
         data["sign"] = [ln.strip() for ln in f if ln.strip()]
     shutil.copytree(os.path.join(HERE, "assets"), os.path.join(args.out, "assets"), dirs_exist_ok=True)
     casters.apply_assets(caster, os.path.join(args.out, "assets"))
+    shot, site_title = capture_site_top(os.path.join(args.out, "assets"))
+    data["siteImg"] = "assets/site_top.png" if shot else ""
+    if shot:
+        shown = re.search(r"(\d{1,2})月(\d{1,2})日", site_title)
+        if shown and (int(shown.group(1)), int(shown.group(2))) != (m, d):
+            print(f"::notice::モニターに出したサイトのトップ画面は {shown.group(1)}月{shown.group(2)}日版です(動画は {m}月{d}日分)")
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as f:
         html = f.read().replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
     html_path = os.path.join(args.out, "scene.html")
