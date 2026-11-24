@@ -8,7 +8,9 @@ name: 直前買い目の自動掲載(毎日・公開側で実行)
 #   ・直前情報が間に合わなかったレースは、朝の買い目のまま
 # 公式への取得は、official_fetch.fetch() だけを使う(3秒あけ・403で中止・429で中止・停止の目印)。
 # 動くのは、日本時間の 7:15〜23:30 の間だけ(朝の更新・0時の毎晩の検証と、公式への取得を重ねないため)。
-# 1回の実行は最大330分。重ならないように、順番に待って動く(1つ動いている間に来た予定は、あとから続きを動かす)。
+# 1回の実行は最大330分(GitHubの1実行は最大6時間)。最終レースの締切まで1回では足りないので、330分で終わったとき、続きのレースが残っていれば、
+# 最後の段で次の実行を自分で起動する(取れたレースは引き継ぎ、取り直さない)。全レースが決まったら、そこで終わる。
+# 重ならないように、順番に待って動く(1つ動いている間に来た予定は、あとから続きを動かす)。
 # 買い目はログに出さない(公開側の実行の記録は誰でも見られるため。出すのは、状態・取れた時刻・回数だけ)。
 #
 # 必要な秘密の値(boat-rex-video の Settings → Secrets and variables → Actions。すでに登録済み)
@@ -36,6 +38,7 @@ on:
 
 permissions:
   contents: write
+  actions: write      # 続きのレースがあるとき、次の実行を自分で起動するため
 
 concurrency:
   group: live-prod
@@ -165,6 +168,26 @@ jobs:
             git commit -q -m "live: $(date -u +'%Y-%m-%d %H:%M')"
             git pull --rebase origin main || true
             git push
+          fi
+
+      # 330分で終わって、続きのレースが残っているときだけ(live_run.py が目印 live_handoff.flag を作る)、次の実行を起動する。
+      # 起動した実行は、この実行が終わるまで順番を待つ(上の concurrency)。起動に失敗しても、上の予定の実行(12:47・18:17)が予備になる
+      - name: 続きのレースがあれば、次の実行を起動
+        if: always() && steps.co.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f live_handoff.flag ]; then
+            D="$(tr -d '[:space:]' < live_handoff.flag)"
+            if echo "$D" | grep -Eq '^[0-9]{8}$'; then
+              gh workflow run live-public.yml --repo "${{ github.repository }}" -f date="${D:0:4}-${D:4:2}-${D:6:2}" -f minutes=330 \
+                && echo "次の実行を起動しました(対象 $D)" \
+                || echo "::warning::次の実行を起動できませんでした。予備の予定の実行(日本時間12:47・18:17)で続きます"
+            else
+              echo "::warning::引き継ぎの目印の中身が日付ではありません: $D"
+            fi
+          else
+            echo "続きのレースはありません(全レースが決まったか、時間の上限まで来ました)"
           fi
 
       - name: 失敗していたら、失敗で終える
