@@ -131,6 +131,13 @@ def capture(base, out_dir, date, check_images=True, log=print):
         pg = newpage(1782)
         pg.goto(urljoin(base, card["href"]), wait_until="load", timeout=60000)
         pg.wait_for_function("document.fonts.ready.then(()=>true)"); pg.wait_for_timeout(1200)
+        # レースごとに別ページ: 最終レースのページへ移る(古い形のページは、移るリンクがないので、そのまま)
+        ids0 = pg.evaluate("[...document.querySelectorAll('#rbt [data-r]:not(.dis):not([disabled])')].map(e=>parseInt(e.getAttribute('data-r')))")
+        if ids0:
+            href0 = pg.evaluate("(n)=>{const a=document.querySelector('#rbt a[data-r=\"'+n+'\"]'); return a?a.getAttribute('href'):null}", max(ids0))
+            if href0:
+                pg.goto(urljoin(pg.url, href0), wait_until="load", timeout=60000)
+                pg.wait_for_function("document.fonts.ready.then(()=>true)"); pg.wait_for_timeout(1200)
         ids = pg.evaluate("[...document.querySelectorAll('.rc')].map(e=>parseInt(e.id.replace('rc','')))")
         if not ids:
             raise RuntimeError("レースがありません(.rc が0個)")

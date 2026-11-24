@@ -83,6 +83,13 @@ def capture(base, out_dir, date, seed, check_date=True, log=print):
         pg.wait_for_function("document.fonts.ready.then(()=>true)"); pg.wait_for_timeout(1200)
         if check_date and not today_ok and f"{mm}月{dd}日" not in pg.inner_text("body"):
             raise RuntimeError(f"今日({mm}月{dd}日)の出走表ではありません(トップ画面にも場のページにも日付がありません)。サイトの更新前かもしれません")
+        # レースごとに別ページ: 最終レースのページへ移る(古い形のページは、移るリンクがないので、そのまま)
+        ids0 = pg.evaluate("[...document.querySelectorAll('#rbt [data-r]:not(.dis):not([disabled])')].map(e=>parseInt(e.getAttribute('data-r')))")
+        if ids0:
+            href0 = pg.evaluate("(n)=>{const a=document.querySelector('#rbt a[data-r=\"'+n+'\"]'); return a?a.getAttribute('href'):null}", max(ids0))
+            if href0:
+                pg.goto(urljoin(pg.url, href0), wait_until="load", timeout=60000)
+                pg.wait_for_function("document.fonts.ready.then(()=>true)"); pg.wait_for_timeout(1200)
         ids = pg.evaluate("[...document.querySelectorAll('.rc')].map(e=>parseInt(e.id.replace('rc','')))")
         if not ids: raise RuntimeError("レースがありません(.rc が0個)")
         n = max(ids)
