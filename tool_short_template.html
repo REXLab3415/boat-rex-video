@@ -12,11 +12,9 @@ html,body{width:1080px;height:1920px;overflow:hidden;background:#0b1630;
 #stage::before{content:"";position:absolute;inset:0;
   background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:60px 60px}
 .abs{position:absolute}
-#brand{left:60px;top:70px;display:flex;align-items:center;gap:16px}
-#brand .mk{border-radius:22%;background:linear-gradient(135deg,var(--cy),#3b82f6);display:grid;place-items:center;font-weight:900;color:#06101f}
-#brand .mk{width:56px;height:56px;font-size:32px}
-#brand .nm{font-weight:900;letter-spacing:.07em;font-size:42px}
-#brand .tg{padding:4px 18px;border:2px solid var(--cy);color:var(--cy);border-radius:999px;font-size:28px;font-weight:700}
+#brand{left:60px;top:62px;display:flex;align-items:center}
+#brand .lg{background:#fff;border-radius:16px;overflow:hidden;border:2px solid rgba(255,255,255,.55);box-shadow:0 6px 18px rgba(0,0,0,.4)}
+#brand .lg img{display:block;width:420px}
 #logo{left:0;top:0;width:1080px;height:1920px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;transform-origin:50% 50%}
 #logo{background:#fff}
 #logo img{width:1000px;display:block}
@@ -32,7 +30,7 @@ html,body{width:1080px;height:1920px;overflow:hidden;background:#0b1630;
 </head>
 <body>
 <div id="stage">
-  <div id="brand" class="abs"><div class="mk">B</div><div class="nm" id="brandnm"></div><div class="tg">使い方</div></div>
+  <div id="brand" class="abs"><div class="lg"><img src="tool_short_logo.png"></div></div>
   <div id="phone" class="abs"></div>
   <div id="bubble" class="abs"></div>
   <div id="cslot"><div id="cwrap"></div></div>
@@ -44,7 +42,6 @@ const B = D.beats;
 const $ = s => document.querySelector(s);
 const clamp = (x,a,b)=>Math.min(b,Math.max(a,x));
 const eo = x => { x=clamp(x,0,1); return 1-Math.pow(1-x,3); };
-$('#brandnm').textContent = D.brand;
 $('#phone').innerHTML = D.images.map((s,i)=>`<img id="im${i}" src="${s}">`).join('');
 /* ---- キャスター(横動画と同じ部品・同じ口パク) ---- */
 (function buildCaster(){
