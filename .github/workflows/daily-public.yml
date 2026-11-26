@@ -15,7 +15,8 @@ on:
         default: ""
 
 permissions:
-  contents: read      # この公開側のリポジトリには、何も書かない。非公開側への書き込みは BSP_TOKEN で行う
+  contents: write     # 前日の動画の材料(days/日付.json)が無いとき、この公開側に置くため(それ以外は、公開側に何も書かない。非公開側への書き込みは BSP_TOKEN で行う)
+  actions: write      # 動画づくり・全レース検証を、起動するため
 
 concurrency:
   group: boat-data-update
@@ -31,6 +32,16 @@ jobs:
           repository: REXLab3415/boat-scenario-pro
           ref: main
           token: ${{ secrets.BSP_TOKEN }}
+
+      # 前日の分の状態を、更新の前に記録しておく(7:00の更新で、前日の出走表は消えるため)。最後の「前日の取り戻し」で使う。何も変えない
+      - name: 前日の分の状態を記録(取り戻しの判断用)
+        id: prev
+        continue-on-error: true
+        run: |
+          D="$(TZ=Asia/Tokyo date -d yesterday +%Y%m%d)"
+          echo "d=$D" >> "$GITHUB_OUTPUT"
+          if [ -f "allrace_out/$D/check.json" ]; then echo "saved=yes" >> "$GITHUB_OUTPUT"; else echo "saved=no" >> "$GITHUB_OUTPUT"; fi
+          if python3 -c "import json,sys; c=json.load(open('data/race_card_latest.json',encoding='utf-8')); sys.exit(0 if c.get('$D') else 1)" 2>/dev/null; then echo "card=yes" >> "$GITHUB_OUTPUT"; else echo "card=no" >> "$GITHUB_OUTPUT"; fi
 
       - name: Pythonをセットアップ
         uses: actions/setup-python@v5
@@ -173,9 +184,80 @@ jobs:
           echo "材料の追加: ${{ steps.news_extra.outcome }} / 準備①: ${{ steps.news_setup.outcome }} / 準備②(ブラウザ): ${{ steps.news_browser.outcome }} / 作成: ${{ steps.news_build.outcome }} / 公開: ${{ steps.news_deploy.outcome }}"
           if [ "${{ steps.news_deploy.outcome }}" != "success" ]; then echo "::warning::全場の出走表は、今日は公開できませんでした(ツール本体は公開済みです)。上の各段のログを見てください"; fi
 
+      # ---- 前日の取り戻し(毎日の更新が、あとから自動で直す。公式サイトには、ここではアクセスしない) ----
+      # 0:00の全レース検証が、失敗・遅れで、動画の材料(days/日付.json)を置けなかった日を、自動で直す。
+      #   ・前日の結果が保存されていない: 出走表が残っているあいだ(7:00の更新まで)は、全レース検証をやり直す
+      #   ・保存されているのに、公開側に材料が無い: 保存済みの結果から材料を置いて、動画づくりを起動する
+      #   ・すでに材料がある・動画が上がっている: 何もしない
+      - name: 公開側(boat-rex-video)を pub フォルダに取得(前日の取り戻し用)
+        id: pubco
+        if: always() && steps.prev.outputs.d != ''
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          path: pub
+
+      - name: 前日の動画の材料を確認して、無ければ取り戻す
+        id: heal
+        if: always() && steps.prev.outputs.d != '' && steps.pubco.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          D: ${{ steps.prev.outputs.d }}
+          SAVED: ${{ steps.prev.outputs.saved }}
+          CARD: ${{ steps.prev.outputs.card }}
+        run: |
+          # GitHub側の一時的なエラーで、書き込みや起動が断られることがある。最大5回、30秒あけてやり直す
+          retry() { n=0; until "$@"; do n=$((n+1)); if [ "$n" -ge 5 ]; then return 1; fi; echo "::warning::失敗しました。30秒あけて、やり直します($n/5)"; sleep 30; done; }
+          push_once() { git pull --rebase origin main || true; git push; }
+          start_video() { gh workflow run video.yml --repo REXLab3415/boat-rex-video --ref main -f date="$(date -d "$D" +%Y-%m-%d)"; }
+          start_check() { gh workflow run allrace-run-public.yml --repo REXLab3415/boat-rex-video --ref main -f source=cloudflare -f date="$(date -d "$D" +%Y-%m-%d)"; }
+          if [ "$SAVED" != "yes" ]; then
+            if [ "$CARD" = "yes" ]; then
+              echo "::warning::${D} の全レース検証が、保存されていません。出走表が残っているので、全レース検証をやり直します"
+              retry start_check || { echo "::error title=全レース検証を起動できません::${D}: 5回とも失敗しました"; exit 1; }
+              echo "::notice::${D} の全レース検証を起動しました(この回が終わったあとに動きます)"
+              exit 0
+            fi
+            echo "::error title=前日の全レース検証がありません::${D} の全レース検証が保存されておらず、出走表も残っていないため、取り戻せません"
+            exit 1
+          fi
+          if [ -f "pub/days/$D.json" ] || [ -f "pub/uploaded/$D.json" ]; then
+            echo "::notice::${D} の動画の材料は、公開側にすでにあります。何もしません"
+            exit 0
+          fi
+          echo "::warning::${D} は保存済みですが、公開側に動画の材料が無いので、置いて、動画づくりを起動します"
+          mkdir -p video_data pub/days
+          python3 make_video_data.py "$D" "video_data/$D.json" || { echo "::error title=動画の材料を作れません::${D}: make_video_data.py が失敗しました"; exit 1; }
+          cp "video_data/$D.json" "pub/days/$D.json"
+          cd pub
+          git config user.name "boat-scenario-pro-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add days
+          if git diff --cached --quiet; then
+            echo "::notice::${D}: 置く内容は、すでに公開側と同じです"
+          else
+            git commit -m "days: $D"
+            retry push_once || { echo "::error title=動画の材料を書き込めません::${D}: git push が5回とも断られました"; exit 1; }
+          fi
+          retry start_video || { echo "::error title=動画づくりを起動できません::${D}: 5回とも失敗しました"; exit 1; }
+          echo "::notice::${D} の動画の材料を置き、動画づくり(video.yml)を起動しました"
+
       # 取得に失敗した(中止した)ときは、公開まで済ませたあとで、この回を失敗(赤)で終える
       - name: 取得に失敗していたら、失敗で終える
         if: steps.fetch.outcome == 'failure'
         run: |
           echo "::error::公式サイトからの取得を中止しました(上の取得のログを見てください)。公開は、今あるデータで済ませています。"
           exit 1
+
+      - name: 失敗をメールで知らせる
+        if: failure() || steps.fetch.outcome == 'failure' || steps.heal.outcome == 'failure'
+        continue-on-error: true
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTE: "毎日の更新(または、前日の動画の取り戻し)が、うまくいきませんでした。ツール本体は、今あるデータで公開されています。"
+        run: python3 pub/notify_fail.py

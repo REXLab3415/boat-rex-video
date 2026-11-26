@@ -14,7 +14,7 @@ on:
         required: false
         default: ""
       source:
-        description: "合図の目印(Cloudflareが自動で入れる。手で動かすときは、空欄のまま。保存済みの日の動画の材料だけを置き直すときは resend と入れ、上の日付も入れる)"
+        description: "合図の目印(Cloudflareが自動で入れる。手で動かすときは、空欄のまま。空欄でも、保存済みの日は、公式に触らず、動画の材料だけを置き直す。保存のない日だけ、取る。保存済みの日を取り直したいときだけ force と入れる)"
         required: false
         default: ""
 
@@ -43,7 +43,7 @@ jobs:
         with:
           path: pub
 
-      - name: 対象の日の分が保存済みか確認(予定の実行・Cloudflareの合図のときだけ。手で動かしたときは、必ず動く)
+      - name: 対象の日の分が保存済みか確認(保存済みなら、公式には触らず、取り直さない。取り直すのは force のときだけ)
         id: skip
         env:
           SOURCE_INPUT: ${{ github.event.inputs.source }}
@@ -52,26 +52,46 @@ jobs:
           # 対象の日は、allrace_run.py と同じ決め方: 保存済みの出走表のうち、今日(日本時間)以前でいちばん新しい日。
           # GitHubの予定の実行は、日付をまたいで遅れることがあるため、「今日」には決め打ちしない。
           TARGET="$(python3 -c "import json,datetime; t=(datetime.datetime.utcnow()+datetime.timedelta(hours=9)).strftime('%Y%m%d'); c=json.load(open('data/race_card_latest.json',encoding='utf-8')); k=[x for x in c if x<=t and c[x]]; print(max(k) if k else '')" 2>/dev/null || true)"
-          # 手で動かして、合図の目印に resend と入れたとき: 公式にはアクセスせず、日付で指定した日の保存済みの結果から、動画の材料だけを置き直して、動画づくりを起動する
-          if [ "$SOURCE_INPUT" = "resend" ]; then
+          # 取り直すには、その日の出走表が要る(7:00の更新で、前日の出走表は消える)。無いのに取り直すと、何時間も使って、何も作れずに終わる
+          has_card() { python3 -c "import json,sys; c=json.load(open('data/race_card_latest.json',encoding='utf-8')); sys.exit(0 if c.get('$1') else 1)"; }
+          EVENT="${{ github.event_name }}"
+          # 日付が入力されていれば、その日を対象にする(手で動かしたときも、Cloudflareの合図のときも)
+          if [ -n "$DATE_INPUT" ]; then
             if echo "$DATE_INPUT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' && date -d "$DATE_INPUT" +%Y%m%d > /dev/null 2>&1; then
               TARGET="$(date -d "$DATE_INPUT" +%Y%m%d)"
             else
-              echo "::error::resend のときは、対象の日を 2026-11-25 のように入力してください(入力: $DATE_INPUT)。公式にはアクセスしていません"
+              echo "::error::日付の形式が正しくありません。2026-11-25 のように入力してください(入力: $DATE_INPUT)。公式にはアクセスしていません"
               exit 1
             fi
-            if [ ! -f "allrace_out/$TARGET/check.json" ]; then
+          fi
+          SAVED_OK=false
+          if [ -n "$TARGET" ] && [ -f "allrace_out/$TARGET/check.json" ]; then SAVED_OK=true; fi
+          RESEND=false
+          if [ "$SOURCE_INPUT" = "resend" ]; then
+            # 保存済みの日の、動画の材料だけを置き直す(公式にはアクセスしない)
+            if [ -z "$DATE_INPUT" ]; then
+              echo "::error::resend のときは、対象の日を 2026-11-25 のように入力してください。公式にはアクセスしていません"
+              exit 1
+            fi
+            if [ "$SAVED_OK" != "true" ]; then
               echo "::error::$TARGET の保存済みの結果(allrace_out/$TARGET/check.json)が見つかりません。resend は、保存済みの日にだけ使えます"
               exit 1
             fi
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; RESEND=true
             echo "::notice::$TARGET の分は保存済みです。公式にはアクセスせず、動画の材料を置き直します"
-          elif { [ "${{ github.event_name }}" = "schedule" ] || [ "$SOURCE_INPUT" = "cloudflare" ]; } && [ -n "$TARGET" ] && [ -f "allrace_out/$TARGET/check.json" ]; then
+          elif [ "$SAVED_OK" = "true" ] && [ "$SOURCE_INPUT" != "force" ]; then
+            # 保存済みの日は、取り直さない(手で動かしたときも、予定の実行も、Cloudflareの合図も)。動画の材料が公開側に無ければ、次の手順で置く
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::$TARGET の分は、保存済みです。何もせず終わります。"
+            if [ "$EVENT" = "workflow_dispatch" ] && [ "$SOURCE_INPUT" != "cloudflare" ]; then RESEND=true; fi
+            echo "::notice::$TARGET の分は、保存済みです。公式にはアクセスしません(取り直すときだけ、合図の目印に force を入れます)"
           else
+            if [ -z "$TARGET" ] || ! has_card "$TARGET"; then
+              echo "::error::$TARGET の出走表は、もう残っていないため、取り直せません(前日の出走表は、7:00の更新で消えます)。何時間も使わないよう、ここで止めます"
+              exit 1
+            fi
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "resend=$RESEND" >> "$GITHUB_OUTPUT"
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Pythonをセットアップ
@@ -146,13 +166,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SAVED: ${{ steps.save.outputs.date }}
           TARGET: ${{ steps.skip.outputs.target }}
-          RESEND: ${{ github.event.inputs.source == 'resend' && '1' || '' }}
+          RESEND: ${{ steps.skip.outputs.resend == 'true' && '1' || '' }}
         run: |
           D="${SAVED:-$TARGET}"
           # GitHub側の一時的なエラーで、書き込みや起動が断られることがある。最大5回、30秒あけてやり直す
           retry() { n=0; until "$@"; do n=$((n+1)); if [ "$n" -ge 5 ]; then return 1; fi; echo "::warning::失敗しました。30秒あけて、やり直します($n/5)"; sleep 30; done; }
           push_once() { git pull --rebase origin main || true; git push; }
           start_video() { gh workflow run video.yml --repo REXLab3415/boat-rex-video --ref main -f date="$(date -d "$D" +%Y-%m-%d)"; }
+          if [ -n "$RESEND" ] && [ -f "pub/uploaded/$D.json" ]; then
+            echo "::notice::${D} の動画は、すでに上がっています(uploaded/$D.json)。動画づくりは起動しません"
+            exit 0
+          fi
           if [ -z "$SAVED" ] && [ -f "pub/days/$D.json" ] && [ -z "$RESEND" ]; then
             echo "::notice::${D} の材料は、公開側にすでにあります。送りません"
             exit 0
@@ -191,3 +215,15 @@ jobs:
             echo "::error::動画の材料を置く・動画づくりを起動する、のどこかで失敗しました(保存は済んでいます)。上の「動画の材料を、公開側に置いて」のログを見てください"
           fi
           exit 1
+
+      - name: 失敗をメールで知らせる
+        if: failure() || steps.run.outcome == 'failure' || steps.send.outcome == 'failure'
+        continue-on-error: true
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTE: "この実行が失敗しても、翌朝3:00・7:00の毎日の更新が、保存済みの結果から、動画の材料を自動で置き直します。全レース検証そのものが失敗した日は、7:00までなら、3:00の更新が、自動でやり直します。"
+        run: python3 pub/notify_fail.py

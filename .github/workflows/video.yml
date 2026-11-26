@@ -252,3 +252,15 @@ jobs:
             echo "::warning::ショートの投稿の記録を保存できませんでした。同じ日をもう一度動かすと、二重に投稿されます"
             exit 1
           fi
+
+      - name: 失敗をメールで知らせる
+        if: failure()
+        continue-on-error: true
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTE: "動画づくり(または、YouTubeへの投稿)が、うまくいきませんでした。実行のページを開き、赤い文を、そのまま貼って相談してください。"
+        run: python3 notify_fail.py
