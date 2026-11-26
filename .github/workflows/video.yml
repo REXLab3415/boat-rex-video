@@ -34,6 +34,7 @@ on:
 
 permissions:
   contents: write
+  actions: write      # 動画が上がったあと、出走表サイトの作り直し(news-only-public.yml)を起動するため
 
 concurrency:
   group: allrace-video
@@ -253,8 +254,35 @@ jobs:
             exit 1
           fi
 
+      # 動画がYouTubeに上がったら、出走表サイトを作り直す(トップの動画の画像を、すぐ最新にするため)。
+      # 作り直しは、uploaded/日付.json から最新の動画IDを取り込む。GitHubのファイル配信は約5分キャッシュされるので、少し待ってから起動する。
+      - name: 動画が上がったら、出走表サイトを作り直す(トップの画像を最新にする)
+        id: site
+        if: ${{ !cancelled() && github.event.inputs.voice != 'dummy' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATE_OUT: ${{ steps.d.outputs.date }}
+        run: |
+          D="$DATE_OUT"
+          if [ -z "$D" ]; then D="$(ls days/*.json 2>/dev/null | sed -n 's#^days/\([0-9]\{8\}\)\.json$#\1#p' | sort | tail -1)"; fi
+          if [ -z "$D" ] || [ ! -f "uploaded/$D.json" ]; then
+            echo "::notice::${D:-(日付なし)} の動画は、まだ上がっていないので、サイトの作り直しは起動しません"
+            exit 0
+          fi
+          echo "::notice::${D} の動画が上がっています。ファイル配信のキャッシュが切れるまで、5分半待ちます"
+          sleep 330
+          n=0
+          until gh workflow run news-only-public.yml --repo REXLab3415/boat-rex-video --ref main; do
+            n=$((n+1))
+            if [ "$n" -ge 5 ]; then echo "::error title=サイトの作り直しを起動できません::5回とも失敗しました"; exit 1; fi
+            echo "::warning::起動に失敗しました。30秒あけて、やり直します($n/5)"
+            sleep 30
+          done
+          echo "::notice::出走表サイトの作り直し(news-only-public.yml)を起動しました"
+
       - name: 失敗をメールで知らせる
-        if: failure()
+        if: failure() || steps.site.outcome == 'failure'
         continue-on-error: true
         env:
           MAIL_USER: sg34153415@gmail.com
