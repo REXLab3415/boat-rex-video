@@ -1,0 +1,37 @@
+name: 見張り(止まったままの更新・投稿を、自動で起こし直す)
+
+# 更新・投稿が「失敗したまま」「遅れたまま」になっていないかを、30分おきに見て、足りない項目を起こし直す。
+# 途中の経過は見ない。「投稿の記録(uploaded/)があるか」「成功した実行があるか」だけを見る。
+# 見る項目・時間帯・やり直しの上限は、watchdog.py の先頭に書いてある。
+# 起動のしかた:
+#   ・Cloudflare(worker.js)が、毎時15分・45分に起動する(時刻どおり)
+#   ・予備として、GitHub自身の予定(毎時20分)でも動く(GitHubの予定は、数時間遅れることがある。動いても、二重に起こさない作り)
+#   ・手で動かしても、同じ動き(起こすべきものがなければ、何もしない)
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read     # uploaded/ の記録を読むため
+  actions: write     # 各ワークフローを起動するため
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 止まったままの項目を、起こし直す
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 watchdog.py

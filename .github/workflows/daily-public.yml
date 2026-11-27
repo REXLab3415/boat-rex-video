@@ -178,11 +178,15 @@ jobs:
           git pull --rebase origin main || true
           git push
 
-      - name: 全場の出走表の結果を表示(失敗しても、ここでは赤にしない)
+      - name: 全場の出走表の結果を表示(公開できていなければ、この回を赤で終える。見張りが、やり直す)
         if: always()
         run: |
           echo "材料の追加: ${{ steps.news_extra.outcome }} / 準備①: ${{ steps.news_setup.outcome }} / 準備②(ブラウザ): ${{ steps.news_browser.outcome }} / 作成: ${{ steps.news_build.outcome }} / 公開: ${{ steps.news_deploy.outcome }}"
-          if [ "${{ steps.news_deploy.outcome }}" != "success" ]; then echo "::warning::全場の出走表は、今日は公開できませんでした(ツール本体は公開済みです)。上の各段のログを見てください"; fi
+          # 公式サイトからの取得を止めている間(停止の目印あり)は、出走表を作らないので、赤にしない
+          if [ "${{ steps.news_deploy.outcome }}" != "success" ] && [ "${{ steps.guard.outputs.stopped }}" != "true" ]; then
+            echo "::error title=出走表を公開できませんでした::全場の出走表は、今日は公開できませんでした(ツール本体は公開済みです)。上の各段のログを見てください。見張りが、自動でやり直します"
+            exit 1
+          fi
 
       # ---- 前日の取り戻し(毎日の更新が、あとから自動で直す。公式サイトには、ここではアクセスしない) ----
       # 0:00の全レース検証が、失敗・遅れで、動画の材料(days/日付.json)を置けなかった日を、自動で直す。
