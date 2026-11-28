@@ -6,7 +6,7 @@ news_note.py ― noteに貼る「全レース買い目」(直前情報を読み�
 ・出走表は、非公開側に保存された data/race_card_latest.json を使う。公式サイトには、アクセスしない。
 ・今日の出走表でないとき(日付が違うとき)は、古い買い目を送らず、失敗で終える。
 ・計算できなかったレースは、間違った数字を出さず、画像に「計算できませんでした」と出す。
-・画像は、1場を6レースずつ(1〜6R・7〜12R)の縦長。ZIPにまとめて、メールに添付する(noteに、まとめてドラッグできる)。
+・画像は、1場を6レースずつ(1〜6R・7〜12R)の縦長。ZIPにせず、画像(PNG)を1枚ずつ、そのままメールに添付する(保存すると、noteの「+」→「画像」で開くファイルの中に、そのまま並ぶ)。
 ・メールは、Xのメールと同じ仕組み(Gmail・アプリパスワード)。同じ日の二重送信は、uploaded/日付_note_mail.json で防ぐ。
 
 環境変数: MAIL_USER, MAIL_TO, GMAIL_APP_PASSWORD
@@ -18,10 +18,9 @@ import json
 import os
 import smtplib
 import sys
-import zipfile
 from datetime import datetime, timedelta, timezone
 from email.header import Header
-from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -199,29 +198,30 @@ def compute_picks(bsp, ds, races):
     return out
 
 
-def build_mail(date, nvenue, nimg, nng, zip_path, subject_title):
+def build_mail(date, nvenue, nimg, nng, subject_title):
     m, dd = date.month, date.day
     body = (
         f"■ タイトル欄\n{subject_title}\n\n"
         f"■ 見出し\n解析ツール BOAT REX PRO\n\n"
         f"■ 小見出し\n{m}月{dd}日 全レース買い目\n\n"
         f"■ 本文(定型)\n{TEMPLATE}\n\n"
-        f"■ 画像\n添付のZIPを展開し、中の画像をすべて選んで、noteの本文にまとめてドラッグしてください。\n\n"
+        f"■ 画像\n添付の画像{nimg}枚を、すべて保存してください。noteの本文で「+」→「画像」を押し、保存した画像を、ファイル名の番号の順に選んでください。\n\n"
         f"(ここから下は、貼り付け不要)\n開催{nvenue}場 ・ 画像{nimg}枚 ・ 計算できなかったレース {nng}\n"
     )
     return body
 
 
-def send_mail(user, to, pw, subject, body, zip_path):
+def send_mail(user, to, pw, subject, body, image_paths):
     msg = MIMEMultipart("mixed")
     msg["Subject"] = Header(subject, "utf-8")
     msg["From"] = user
     msg["To"] = to
     msg.attach(MIMEText(body, "plain", "utf-8"))
-    with open(zip_path, "rb") as f:
-        part = MIMEApplication(f.read(), _subtype="zip")
-    part.add_header("Content-Disposition", "attachment", filename=("utf-8", "", os.path.basename(zip_path)))
-    msg.attach(part)
+    for ip in image_paths:      # 画像(PNG)を、ZIPにせず、1枚ずつそのまま付ける
+        with open(ip, "rb") as f:
+            part = MIMEImage(f.read(), _subtype="png")
+        part.add_header("Content-Disposition", "attachment", filename=("utf-8", "", os.path.basename(ip)))
+        msg.attach(part)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=120) as s:
         s.login(user, pw)
         s.sendmail(user, [to], msg.as_string())
@@ -286,18 +286,14 @@ def main():
             h = render_image(p, date, v, grp, pk, fonts)
             files.append(p)
             log(f"  画像 {name}  高さ {h}px  {os.path.getsize(p) // 1024}KB")
-    zip_path = os.path.join(a.out, f"boat-note-{ds}.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as z:
-        for p in files:
-            z.write(p, os.path.basename(p))
-    zsize = os.path.getsize(zip_path)
-    log(f"ZIP: {os.path.basename(zip_path)}  画像{len(files)}枚  {zsize / 1024 / 1024:.1f}MB")
-    if zsize > 18 * 1024 * 1024:
-        log(f"::error::ZIPが大きすぎて({zsize / 1024 / 1024:.1f}MB)メールで送れません")
+    zsize = sum(os.path.getsize(p) for p in files)
+    log(f"添付する画像: {len(files)}枚  合計 {zsize / 1024 / 1024:.1f}MB")
+    if zsize > 17 * 1024 * 1024:      # メールは、添付が文字に変えられて約1.4倍になり、Gmailの上限(25MB)に収まらなくなる
+        log(f"::error::画像の合計が大きすぎて({zsize / 1024 / 1024:.1f}MB)メールで送れません")
         return 1
 
     title = f"【{date.month}月{date.day}日】全レース買い目|解析ツール BOAT REX PRO"
-    body = build_mail(date, len(venues), len(files), nng, zip_path, title)
+    body = build_mail(date, len(venues), len(files), nng, title)
     with open(os.path.join(a.out, "mail_body.txt"), "w", encoding="utf-8") as f:
         f.write(f"件名: {title}\n\n{body}")
     if a.no_mail:
@@ -311,7 +307,7 @@ def main():
         log("::error::GMAIL_APP_PASSWORD(または MAIL_USER)が登録されていないため、メールを送れません")
         return 1
     try:
-        send_mail(user, to, pw, title, body, zip_path)
+        send_mail(user, to, pw, title, body, files)
     except smtplib.SMTPAuthenticationError:
         log("::error::Gmailにログインできませんでした。GMAIL_APP_PASSWORD が正しいか確認してください")
         return 1
