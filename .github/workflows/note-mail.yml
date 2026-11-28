@@ -1,0 +1,118 @@
+name: noteの買い目(画像とメール)を送る(出走表サイトの更新のあと)
+
+# 出走表サイトの毎日の更新(毎日のデータ自動更新)が成功したあとに、自動で動く。
+# 非公開側(boat-scenario-pro)の、今日の出走表と画面の計算(出走表サイトと同じ計算)で、
+# 「直前情報を読み込む前・1コース先マイ」の買い目を出し、noteに貼るための画像(ZIP)と文面を、メールで送る(投稿はREXが手でする)。
+# ・日本時間の朝6:30より前の回(3:00の早い回のあと)は、何もしない。7:00の完成版のあとで送る。
+# ・同じ日は1回だけ送る(送信の記録: uploaded/日付_note_mail.json)。
+# ・今日の出走表でないとき・買い目を1レースも出せないとき・メールを送れないときは、赤で終えて、失敗のメールで知らせる。
+# ・公式サイトには、アクセスしない。
+# 手動で動かすと、すぐ作って送る(送信済みでも送り直せる。画像1枚のレース数も変えられる)。
+on:
+  workflow_run:
+    workflows: ["毎日のデータ自動更新(公開側で実行)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "送信済みでも、もう一度送る"
+        required: false
+        type: boolean
+        default: false
+      per_image:
+        description: "画像1枚に入れるレース数(標準は6。noteで縦長が見づらいときだけ、3や4に)"
+        required: false
+        default: "6"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: note-mail
+  cancel-in-progress: false
+
+jobs:
+  mail:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 時刻の確認(朝6:30より前の自動の回は、何もしない)
+        id: t
+        run: |
+          H=$(TZ=Asia/Tokyo date +%H%M)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ $((10#$H)) -ge 630 ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "日本時間の朝6:30より前の回なので、何もしません(7:00の回のあとで送ります)"
+          fi
+
+      - name: 公開側(boat-rex-video)を取得
+        if: steps.t.outputs.go == 'true'
+        uses: actions/checkout@v4
+
+      - name: 非公開側(boat-scenario-pro)を bsp に取得
+        if: steps.t.outputs.go == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: REXLab3415/boat-scenario-pro
+          ref: main
+          token: ${{ secrets.BSP_TOKEN }}
+          path: bsp
+
+      - name: Pythonをセットアップ
+        if: steps.t.outputs.go == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 日本語フォント・画面の計算のブラウザ・部品を用意
+        if: steps.t.outputs.go == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          python -m pip install playwright pillow
+          python -m playwright install --with-deps chromium
+
+      - name: 買い目を計算して、画像とメールを作って送る
+        id: mail
+        if: steps.t.outputs.go == 'true'
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          FORCE: ${{ github.event.inputs.force }}
+          PER_IMAGE: ${{ github.event.inputs.per_image }}
+        run: |
+          EXTRA=""
+          if [ "$FORCE" = "true" ]; then EXTRA="$EXTRA --force"; fi
+          if echo "$PER_IMAGE" | grep -Eq '^[1-9][0-9]?$'; then EXTRA="$EXTRA --per-image $PER_IMAGE"; fi
+          python news_note.py --bsp bsp --out note_out $EXTRA
+
+      - name: 送信の記録を保存(同じ日の二重送信を防ぐ)
+        if: ${{ !cancelled() && steps.t.outputs.go == 'true' }}
+        run: |
+          if [ -n "$(git status --porcelain uploaded)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uploaded
+            git commit -m "noteの買い目メールの送信の記録"
+            for i in 1 2 3 4 5; do
+              if git pull --rebase origin main && git push origin HEAD:main; then exit 0; fi
+              sleep 5
+            done
+            echo "::warning::送信の記録を保存できませんでした。次の回で、同じメールがもう一度送られることがあります"
+            exit 1
+          fi
+
+      - name: 失敗をメールで知らせる
+        if: ${{ failure() }}
+        env:
+          MAIL_USER: sg34153415@gmail.com
+          MAIL_TO: sg34153415@gmail.com
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          WORKFLOW_NAME: noteの買い目メール
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NOTE: 今日の出走表のデータが古い・買い目を計算できない・メールを送れない、のどれかです。上のページの赤い文で、原因が分かります。
+        run: python3 notify_fail.py
